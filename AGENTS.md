@@ -14,16 +14,16 @@ Keep module dependencies layered and avoid circular project references. Put new 
 
 ## Build, Test, and Development Commands
 
-Run commands from the repository root:
+The Codex shell for this workspace runs under WSL, but this project targets Windows .NET and the local WSL environment cannot run `dotnet` reliably. Do **not** run `dotnet`, `dotnet.exe`, or .NET test/build/run commands from Codex. Instead, when verification is needed, ask the user to run the appropriate command from Windows PowerShell at the repository root:
 
-```bash
+```powershell
 dotnet build
 dotnet test
 dotnet test ARIA.Agent.Tests
 dotnet run --project ARIA.Service
 ```
 
-`dotnet build` compiles the full solution. `dotnet test` runs all test projects. Target a single test project when iterating on one module. `dotnet run --project ARIA.Service` starts the service locally for integration checks.
+`dotnet build` compiles the full solution. `dotnet test` runs all test projects. Target a single test project when iterating on one module. `dotnet run --project ARIA.Service` starts the service locally for integration checks. In Codex responses, report the exact PowerShell command the user should run and clearly state that Codex did not run it locally.
 
 ## Coding Style & Naming Conventions
 
@@ -35,7 +35,7 @@ Prefer small, focused classes aligned to the existing folder layout. Register cr
 
 Tests use xUnit, FluentAssertions, NSubstitute where needed, and `coverlet.collector`. Add tests for new behavior and regressions, especially around command routing, storage, scheduling, and configuration parsing.
 
-Name test files after the subject under test, for example `CommandRegistryTests.cs`. Prefer descriptive test method names such as `TryHandleAsync_ReturnsFalse_ForUnknownCommand`. Run `dotnet test` before submitting changes.
+Name test files after the subject under test, for example `CommandRegistryTests.cs`. Prefer descriptive test method names such as `TryHandleAsync_ReturnsFalse_ForUnknownCommand`. Ask the user to run `dotnet test` from Windows PowerShell before submitting changes; Codex should not attempt to run it from WSL.
 
 ## Commit & Pull Request Guidelines
 
