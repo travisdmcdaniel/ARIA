@@ -10,7 +10,10 @@ using ARIA.Memory.Sqlite;
 using ARIA.Service;
 using ARIA.Service.Security;
 using ARIA.Skills.BuiltIn;
+using ARIA.Skills.BuiltIn.ContextFileTools;
+using ARIA.Skills.BuiltIn.FileTools;
 using ARIA.Skills.Loader;
+using ARIA.Skills.Sandbox;
 using ARIA.Telegram.Commands;
 using ARIA.Telegram.Handlers;
 using Microsoft.Extensions.Options;
@@ -87,8 +90,12 @@ try
         return new OllamaAdapter(opts);
     });
 
-    // ── Skills / tool registry (no-op stubs until M5 and M6) ─────────────────
-    builder.Services.AddSingleton<IToolRegistry, EmptyToolRegistry>();
+    // ── Skills / tool registry ───────────────────────────────────────────────
+    builder.Services.AddSingleton<WorkspaceSandbox>();
+    builder.Services.AddSingleton<FileToolsExecutor>();
+    builder.Services.AddSingleton<ContextFileToolsExecutor>();
+    builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
+    // No-op skill store until M6.
     builder.Services.AddSingleton<ISkillStore, EmptySkillStore>();
 
     // ── Agent ─────────────────────────────────────────────────────────────────
