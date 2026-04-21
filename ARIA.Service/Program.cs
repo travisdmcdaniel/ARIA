@@ -74,9 +74,27 @@ try
         return new DatabaseMigrator(dbPath, logger);
     });
 
-    // ── Telegram services ─────────────────────────────────────────────────────
-    builder.Services.AddSingleton<IBotCommand, NewSessionCommand>();
+    // ── Telegram commands ─────────────────────────────────────────────────────
+    // General
+    builder.Services.AddSingleton<IBotCommand, HelpCommand>();
     builder.Services.AddSingleton<IBotCommand, StatusCommand>();
+    builder.Services.AddSingleton<IBotCommand, NewSessionCommand>();
+    builder.Services.AddSingleton<IBotCommand, SessionsCommand>();
+    builder.Services.AddSingleton<IBotCommand, ResumeCommand>();
+    // Model management (M3)
+    builder.Services.AddSingleton<IBotCommand, ModelsCommand>();
+    builder.Services.AddSingleton<IBotCommand, ModelCommand>();
+    // Skills (M6)
+    builder.Services.AddSingleton<IBotCommand, ReloadSkillsCommand>();
+    // Scheduler (M7)
+    builder.Services.AddSingleton<IBotCommand, JobsCommand>();
+    builder.Services.AddSingleton<IBotCommand, CancelJobCommand>();
+    // Google OAuth (M8)
+    builder.Services.AddSingleton<IBotCommand, GoogleSetupCommand>();
+    builder.Services.AddSingleton<IBotCommand, GoogleConnectCommand>();
+    builder.Services.AddSingleton<IBotCommand, GoogleCompleteCommand>();
+    builder.Services.AddSingleton<IBotCommand, GoogleDisconnectCommand>();
+
     builder.Services.AddSingleton<CommandRegistry>();
     builder.Services.AddSingleton<IMessageRouter, MessageRouter>();
     builder.Services.AddHostedService<TelegramWorker>();

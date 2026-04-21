@@ -7,6 +7,7 @@ namespace ARIA.Telegram.Commands;
 public sealed class NewSessionCommand : IBotCommand
 {
     public string Command => "/new";
+    public string Description => "Archive the current conversation and start a fresh session.";
 
     public async Task HandleAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
     {

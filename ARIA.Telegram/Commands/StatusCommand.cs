@@ -7,6 +7,7 @@ namespace ARIA.Telegram.Commands;
 public sealed class StatusCommand : IBotCommand
 {
     public string Command => "/status";
+    public string Description => "Show agent health, connected services, and current model.";
 
     public async Task HandleAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
     {

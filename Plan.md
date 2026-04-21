@@ -1,6 +1,27 @@
 # ARIA — Concrete Implementation Plan
 
-**Current state:** Solution scaffold complete (projects, `.csproj` files, empty folder placeholders). No production code written yet.
+**Current state:** Phase 1 (M1 + M2) complete. Service runs, connects to Telegram, persists SQLite schema, and handles all commands below (fully or as informative stubs).
+
+---
+
+## Bot Command Reference
+
+| Command | Description | Milestone |
+|---|---|---|
+| `/help` | List all available commands | M2 ✅ |
+| `/new` | Archive current session and start fresh | M2 ✅ (session wiring M4) |
+| `/status` | Agent health, connected services, active model | M2 ✅ (live data M3) |
+| `/model [name]` | Show active model, or switch to a different one | M3 |
+| `/models` | List all Ollama models with sizes and active indicator | M3 |
+| `/sessions` | List recent conversation sessions | M4 |
+| `/resume <id>` | Resume a previous session | M4 |
+| `/reloadskills` | Hot-reload all SKILL.md files | M6 |
+| `/jobs` | List active scheduled jobs | M7 |
+| `/canceljob <id>` | Cancel a scheduled job | M7 |
+| `/google_setup` | Upload client_secret.json to configure OAuth credentials | M8 |
+| `/google_connect` | Start OAuth flow and receive an authorization link | M8 |
+| `/google_complete <code>` | Complete OAuth manually (fallback for remote use) | M8 |
+| `/google_disconnect` | Revoke Google access and delete stored tokens | M8 |
 
 ---
 
@@ -233,8 +254,10 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 
 #### Step 8.1 — OAuth flow (`ARIA.Google/Auth`)
 
-- [ ] `GoogleAuthService.cs` — `AuthorizeAsync()` using `GoogleWebAuthorizationBroker` with loopback redirect; stores tokens via `ICredentialStore`; `GetCredentialWithScopesAsync()` handles incremental consent; `RevokeAsync()` deletes tokens
-- [ ] `GoogleTokenStore.cs` — custom `IDataStore` backed by `ICredentialStore` (DPAPI-encrypted)
+- [ ] `GoogleAuthService.cs` — manages the full OAuth lifecycle; stores tokens via `ICredentialStore` (DPAPI-encrypted); `GetCredentialWithScopesAsync()` handles incremental consent; `RevokeAsync()` deletes tokens
+- [ ] `GoogleTokenStore.cs` — custom `IDataStore` backed by `ICredentialStore`
+- [ ] Loopback listener: when `/google_connect` fires, start a temporary `HttpListener` on a random localhost port; generate the authorization URL using that port as the redirect URI; send URL to user via Telegram. If the user opens it in the local browser, the callback is received automatically and tokens are stored — no further command needed
+- [ ] Manual fallback: `/google_complete <code_or_url>` extracts the authorization code and completes the token exchange for users who cannot trigger the loopback (e.g. issuing the command remotely via Telegram on another device)
 
 #### Step 8.2 — Gmail + Calendar skills (`ARIA.Google/Skills`)
 
@@ -242,12 +265,14 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 - [ ] `CalendarSkillExecutor.cs` — `get_calendar_events`, `create_calendar_event`
 - [ ] Register both as in-process skills in `SkillRegistry`
 
-#### Step 8.3 — Bot commands
+#### Step 8.3 — Bot commands (stubs already registered; implement here)
 
-- [ ] `Commands/ConnectGoogleCommand.cs` — sends "Opening browser…", calls `AuthorizeAsync`, confirms result
-- [ ] `Commands/DisconnectGoogleCommand.cs` — calls `RevokeAsync`
+- [ ] `GoogleSetupCommand` — accept `client_secret.json` as a Telegram file attachment; parse JSON; extract `client_id` and `client_secret`; store in `ICredentialStore`
+- [ ] `GoogleConnectCommand` — start loopback listener; send OAuth URL to user; confirm when callback received or instruct user to use `/google_complete`
+- [ ] `GoogleCompleteCommand` — accept authorization code or full redirect URL; extract code; exchange for tokens; store via `GoogleAuthService`
+- [ ] `GoogleDisconnectCommand` — call `RevokeAsync`; confirm to user
 
-**M8 done when:** `/connectgoogle` opens browser; Gmail and Calendar tools callable; token refresh transparent; `/disconnectgoogle` cleans up.
+**M8 done when:** `/google_setup` stores credentials; `/google_connect` sends OAuth URL; auto-completes via loopback when opened locally; `/google_complete` works as remote fallback; Gmail and Calendar tools callable; token refresh transparent; `/google_disconnect` cleans up.
 
 ---
 
