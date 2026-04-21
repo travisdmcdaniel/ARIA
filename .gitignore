@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# ARIA development config (contains bot tokens, user IDs — never commit)
+**/config.development.json
+
 # User-specific files
 *.rsuser
 *.suo

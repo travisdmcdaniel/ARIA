@@ -76,6 +76,34 @@ Test projects use xUnit + NSubstitute and mirror the source project they test.
 
 `config.json` lives at `%LOCALAPPDATA%\ARIA\config.json` (production) or `ARIA.Service/config.json` (development). Key paths use `%USERPROFILE%\ARIAWorkspace` as the workspace root by default. The `logging.level` field accepts Serilog level names (`Debug`, `Information`, etc.).
 
+## Telegram Formatting
+
+All messages sent to users via Telegram must use **MarkdownV2** (`ParseMode.MarkdownV2`). Never call `bot.SendMessage` directly — use the extension methods in `ARIA.Telegram/Helpers/BotClientExtensions.cs`:
+
+- `bot.SendMarkdownAsync(chatId, text, ct)` — MarkdownV2 formatted
+- `bot.SendTextAsync(chatId, text, ct)` — plain text, no formatting
+
+All literal text and runtime values embedded in a MarkdownV2 string must be escaped via `Markdown.Escape()` from `ARIA.Telegram/Helpers/Markdown.cs`. Use the helper methods for intentional formatting — they escape the inner text automatically:
+
+```csharp
+// Runtime values always go through Escape()
+$"Loaded {Markdown.Escape(skillName)} successfully\."
+
+// Formatting helpers escape inner text for you
+$"{Markdown.Bold("Error")}: {Markdown.Escape(ex.Message)}"
+
+// Literal punctuation in the template must be hand-escaped
+$"Status\: {Markdown.Escape(statusValue)}"
+```
+
+Available helpers: `Escape()`, `Bold()`, `Italic()`, `Code()`, `CodeBlock()`, `Link()`, `Strike()`.
+
+MarkdownV2 special characters that require escaping in plain text: `_ * [ ] ( ) ~ \` > # + - = | { } . !`
+
+## Configuration
+
+`config.json` lives at `%LOCALAPPDATA%\ARIA\config.json` (production) or `ARIA.Service/config.json` (development). `config.development.json` in the same directory is layered on top and is gitignored — use it for local secrets (bot token, user IDs). Path values in config are resolved via `WorkspaceOptions` helpers: relative paths are combined with `rootPath`; absolute paths and `%ENV_VAR%` paths are used as-is after environment variable expansion.
+
 ## Current State
 
-The repository is at the scaffold stage: project structure, `.csproj` files, and empty folder placeholders are in place. `ARIA.Service/Program.cs` and `AgentWorker.cs` are placeholder stubs. Implementation follows the 12-milestone plan in `Implementation Plan.md`.
+Phase 1 (M1 + M2) is complete. The service runs, connects to Telegram, enforces the user ID whitelist, persists the SQLite schema on first run, and handles `/new` and `/status`. Implementation follows the 12-milestone plan in `Plan.md`.

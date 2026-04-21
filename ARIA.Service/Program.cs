@@ -1,7 +1,97 @@
+using ARIA.Core.Interfaces;
+using ARIA.Core.Options;
+using ARIA.Memory.Context;
+using ARIA.Memory.Migrations;
+using ARIA.Memory.Sqlite;
 using ARIA.Service;
+using ARIA.Service.Security;
+using ARIA.Telegram.Commands;
+using ARIA.Telegram.Handlers;
+using Microsoft.Extensions.Options;
+using Serilog;
+using Serilog.Events;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<AgentWorker>();
+// ── Bootstrap logger (writes before DI is ready) ─────────────────────────────
+var appDataDir = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ARIA");
+Directory.CreateDirectory(appDataDir);
 
-var host = builder.Build();
-host.Run();
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .WriteTo.File(
+        Path.Combine(appDataDir, "logs", "aria-bootstrap-.log"),
+        rollingInterval: RollingInterval.Day)
+    .CreateBootstrapLogger();
+
+try
+{
+    // ── Config path: %LOCALAPPDATA%\ARIA\config.json; fallback to local file ──
+    var productionConfig = Path.Combine(appDataDir, "config.json");
+    var devConfig = Path.Combine(AppContext.BaseDirectory, "config.json");
+    var configPath = File.Exists(productionConfig) ? productionConfig : devConfig;
+
+    var builder = Host.CreateApplicationBuilder(args);
+
+    builder.Services.AddWindowsService(options => options.ServiceName = "ARIAService");
+
+    var devConfigPath = Path.Combine(
+        Path.GetDirectoryName(configPath)!, "config.development.json");
+
+    builder.Configuration
+        .AddJsonFile(configPath, optional: true, reloadOnChange: false)
+        .AddJsonFile(devConfigPath, optional: true, reloadOnChange: false);
+
+    // Bind flat config sections to AriaOptions (config keys are root-level: "workspace", "ollama", etc.)
+    builder.Services.Configure<AriaOptions>(builder.Configuration);
+
+    // ── Serilog (uses configured log level) ───────────────────────────────────
+    var rawLevel = builder.Configuration["logging:level"] ?? "Information";
+    var logLevel = Enum.TryParse<LogEventLevel>(rawLevel, ignoreCase: true, out var parsedLevel)
+        ? parsedLevel
+        : LogEventLevel.Information;
+    var logsDir = Path.Combine(appDataDir, "logs");
+
+    builder.Services.AddSerilog((services, cfg) =>
+        cfg
+            .MinimumLevel.Is(logLevel)
+            .Enrich.FromLogContext()
+            .Enrich.WithProperty("Application", "ARIA")
+            .WriteTo.File(
+                Path.Combine(logsDir, "aria-.log"),
+                rollingInterval: RollingInterval.Day,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}"));
+
+    // ── Core services ─────────────────────────────────────────────────────────
+    builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
+    builder.Services.AddSingleton<IConversationStore, SqliteConversationStore>();
+    builder.Services.AddSingleton<IContextFileStore, MarkdownContextFileStore>();
+
+    builder.Services.AddSingleton<DatabaseMigrator>(sp =>
+    {
+        var opts = sp.GetRequiredService<IOptions<AriaOptions>>().Value;
+        var dbPath = opts.Workspace.GetResolvedDatabasePath();
+        var logger = sp.GetRequiredService<ILogger<DatabaseMigrator>>();
+        return new DatabaseMigrator(dbPath, logger);
+    });
+
+    // ── Telegram services ─────────────────────────────────────────────────────
+    builder.Services.AddSingleton<IBotCommand, NewSessionCommand>();
+    builder.Services.AddSingleton<IBotCommand, StatusCommand>();
+    builder.Services.AddSingleton<CommandRegistry>();
+    builder.Services.AddSingleton<IMessageRouter, MessageRouter>();
+    builder.Services.AddHostedService<TelegramWorker>();
+
+    // ── Worker ────────────────────────────────────────────────────────────────
+    builder.Services.AddHostedService<AgentWorker>();
+
+    var host = builder.Build();
+    host.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "ARIA host terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
