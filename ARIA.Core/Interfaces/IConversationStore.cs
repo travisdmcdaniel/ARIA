@@ -10,4 +10,5 @@ public interface IConversationStore
     Task<IReadOnlyList<ConversationTurn>> GetRecentTurnsAsync(string sessionId, int maxTurns, CancellationToken ct = default);
     Task<IReadOnlyList<Session>> ListRecentSessionsAsync(long telegramUserId, int retentionDays, CancellationToken ct = default);
     Task<Session?> GetSessionByIdAsync(string sessionId, CancellationToken ct = default);
+    Task<bool> ResumeSessionAsync(long telegramUserId, string sessionId, CancellationToken ct = default);
 }

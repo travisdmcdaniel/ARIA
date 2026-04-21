@@ -109,19 +109,127 @@ public sealed class SqliteConversationStore : IConversationStore
         return rows.Select(MapTurn).ToList();
     }
 
-    // ── M4 methods (stubs) ────────────────────────────────────────────────────
-
     public Task ArchiveSessionAsync(string sessionId, CancellationToken ct = default)
-        => throw new NotImplementedException("Implemented in M4");
+    {
+        return ArchiveSessionInternalAsync(sessionId, ct);
+    }
 
-    public Task<IReadOnlyList<Session>> ListRecentSessionsAsync(
+    public async Task<IReadOnlyList<Session>> ListRecentSessionsAsync(
         long telegramUserId, int retentionDays, CancellationToken ct = default)
-        => throw new NotImplementedException("Implemented in M4");
+    {
+        await using var conn = await OpenAsync(ct);
 
-    public Task<Session?> GetSessionByIdAsync(string sessionId, CancellationToken ct = default)
-        => throw new NotImplementedException("Implemented in M4");
+        IEnumerable<SessionRow> rows;
+        if (retentionDays > 0)
+        {
+            rows = await conn.QueryAsync<SessionRow>(
+                """
+                SELECT session_id, telegram_user_id, started_at, last_activity_at, is_active
+                FROM sessions
+                WHERE telegram_user_id = @userId AND last_activity_at >= @cutoff
+                ORDER BY last_activity_at DESC
+                """,
+                new
+                {
+                    userId = telegramUserId,
+                    cutoff = DateTime.UtcNow.AddDays(-retentionDays).ToString("O")
+                });
+        }
+        else
+        {
+            rows = await conn.QueryAsync<SessionRow>(
+                """
+                SELECT session_id, telegram_user_id, started_at, last_activity_at, is_active
+                FROM sessions
+                WHERE telegram_user_id = @userId
+                ORDER BY last_activity_at DESC
+                """,
+                new { userId = telegramUserId });
+        }
+
+        return rows.Select(MapSession).ToList();
+    }
+
+    public async Task<Session?> GetSessionByIdAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+
+        var row = await conn.QuerySingleOrDefaultAsync<SessionRow>(
+            """
+            SELECT session_id, telegram_user_id, started_at, last_activity_at, is_active
+            FROM sessions
+            WHERE session_id = @sessionId
+            """,
+            new { sessionId });
+
+        return row is null ? null : MapSession(row);
+    }
+
+    public async Task<bool> ResumeSessionAsync(
+        long telegramUserId,
+        string sessionId,
+        CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        using var tx = conn.BeginTransaction();
+
+        var targetUserId = await conn.QuerySingleOrDefaultAsync<long?>(
+            """
+            SELECT telegram_user_id
+            FROM sessions
+            WHERE session_id = @sessionId
+            """,
+            new { sessionId },
+            tx);
+
+        if (targetUserId != telegramUserId)
+        {
+            tx.Rollback();
+            return false;
+        }
+
+        var now = DateTime.UtcNow.ToString("O");
+
+        await conn.ExecuteAsync(
+            """
+            UPDATE sessions
+            SET is_active = 0
+            WHERE telegram_user_id = @telegramUserId
+            """,
+            new { telegramUserId },
+            tx);
+
+        var updated = await conn.ExecuteAsync(
+            """
+            UPDATE sessions
+            SET is_active = 1, last_activity_at = @now
+            WHERE session_id = @sessionId
+            """,
+            new { now, sessionId },
+            tx);
+
+        tx.Commit();
+        return updated == 1;
+    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private async Task ArchiveSessionInternalAsync(string sessionId, CancellationToken ct)
+    {
+        await using var conn = await OpenAsync(ct);
+
+        await conn.ExecuteAsync(
+            """
+            UPDATE sessions
+            SET is_active = 0, last_activity_at = @now
+            WHERE session_id = @sessionId
+            """,
+            new
+            {
+                now = DateTime.UtcNow.ToString("O"),
+                sessionId
+            });
+    }
 
     private async Task<SqliteConnection> OpenAsync(CancellationToken ct)
     {
