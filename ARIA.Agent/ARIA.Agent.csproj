@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ARIA.Core\ARIA.Core.csproj" />
+    <ProjectReference Include="..\ARIA.Google\ARIA.Google.csproj" />
+    <ProjectReference Include="..\ARIA.LlmAdapter\ARIA.LlmAdapter.csproj" />
+    <ProjectReference Include="..\ARIA.Memory\ARIA.Memory.csproj" />
+    <ProjectReference Include="..\ARIA.Scheduler\ARIA.Scheduler.csproj" />
+    <ProjectReference Include="..\ARIA.Skills\ARIA.Skills.csproj" />
+    <ProjectReference Include="..\ARIA.Telegram\ARIA.Telegram.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Conversation\" />
+    <Folder Include="Prompts\" />
+    <Folder Include="Onboarding\" />
+  </ItemGroup>
+
+</Project>

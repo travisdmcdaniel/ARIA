@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="10.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ARIA.Core\ARIA.Core.csproj" />
+    <ProjectReference Include="..\ARIA.Memory\ARIA.Memory.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="BuiltIn\FileTools\" />
+    <Folder Include="BuiltIn\CreateSkill\" />
+    <Folder Include="BuiltIn\CreateScheduledJob\" />
+    <Folder Include="External\" />
+    <Folder Include="Sandbox\" />
+  </ItemGroup>
+
+</Project>

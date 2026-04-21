@@ -1,0 +1,33 @@
+{
+  "workspace": {
+    "rootPath": "%USERPROFILE%\\ARIAWorkspace",
+    "contextDirectory": "%USERPROFILE%\\ARIAWorkspace\\context",
+    "databasePath": "%USERPROFILE%\\ARIAWorkspace\\aria.db"
+  },
+  "ollama": {
+    "baseUrl": "http://localhost:11434",
+    "model": "gemma4:e4b"
+  },
+  "telegram": {
+    "botToken": "USE_CREDENTIAL_STORE",
+    "authorizedUserIds": []
+  },
+  "google": {
+    "clientId": ""
+  },
+  "agent": {
+    "maxConversationTurns": 20,
+    "contextFileWatchEnabled": true
+  },
+  "skills": {
+    "directory": "%USERPROFILE%\\ARIAWorkspace\\skills",
+    "executionTimeoutSeconds": 300,
+    "allowedEntryPoints": [ ".exe", ".ps1" ]
+  },
+  "scheduler": {
+    "enabled": true
+  },
+  "logging": {
+    "level": "Debug"
+  }
+}

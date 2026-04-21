@@ -1,1 +1,24 @@
-<Solution />
+<Solution>
+  <Folder Name="/installer/">
+    <File Path="ARIA.iss" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="ARIA.Agent/ARIA.Agent.csproj" />
+    <Project Path="ARIA.Core/ARIA.Core.csproj" />
+    <Project Path="ARIA.Google/ARIA.Google.csproj" />
+    <Project Path="ARIA.LlmAdapter/ARIA.LlmAdapter.csproj" />
+    <Project Path="ARIA.Memory/ARIA.Memory.csproj" />
+    <Project Path="ARIA.Scheduler/ARIA.Scheduler.csproj" />
+    <Project Path="ARIA.Service/ARIA.Service.csproj" />
+    <Project Path="ARIA.Skills/ARIA.Skills.csproj" />
+    <Project Path="ARIA.Telegram/ARIA.Telegram.csproj" />
+    <Project Path="ARIA.TrayHost/ARIA.TrayHost.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="ARIA.Agent.Tests/ARIA.Agent.Tests.csproj" />
+    <Project Path="ARIA.Core.Tests/ARIA.Core.Tests.csproj" />
+    <Project Path="ARIA.Memory.Tests/ARIA.Memory.Tests.csproj" />
+    <Project Path="ARIA.Scheduler.Tests/ARIA.Scheduler.Tests.csproj" />
+    <Project Path="ARIA.Skills.Tests/ARIA.Skills.Tests.csproj" />
+  </Folder>
+</Solution>
