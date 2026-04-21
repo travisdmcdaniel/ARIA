@@ -121,30 +121,27 @@ The Telegram bot is the primary user-facing interface for ARIA in v1.
 - The agent shall expose file tools including: read file, write/overwrite file, append to file, list directory, create directory, delete file, and move/rename file
 - File paths provided to tools shall be validated and normalized before execution; path traversal sequences (e.g. `../`) and symlinks pointing outside the workspace shall be blocked
 
-### 5.4 Skill & Tool System
+### 5.4 Skill System
 
-Skills are the mechanism by which ARIA gains new capabilities. Each skill is a self-contained unit that exposes one or more tools to the LLM.
+Skills are Markdown instruction files that extend what the agent knows how to do. Each skill is a `SKILL.md` file inside its own subdirectory under the workspace skills directory. Skills contain natural-language instructions the LLM reads to understand how to carry out a capability — there is no executable code, subprocess, or manifest involved.
 
-- Skills shall be defined by a `manifest.json` file that describes the skill name, version, description, and the tools it provides
-- Each tool definition shall include the name, description, and parameter schema in a format compatible with OpenAI function-calling
-- Skills shall be stored under a well-known skills directory within the workspace; one subdirectory per skill
-- ARIA shall load all valid skills at startup and support hot-reload via a configurable trigger (e.g. file watcher or bot command)
-- The agent shall inject the full list of available tool definitions into every LLM request
-- When the LLM returns a tool call, the Skill Engine shall locate the matching skill, validate the arguments against the schema, execute the tool, and return the result as a tool-result message in the conversation
+- Each skill shall be a `SKILL.md` file stored at `workspace/skills/<skill-name>/SKILL.md`
+- ARIA shall scan the skills directory at startup and load all `SKILL.md` files into an in-memory skill store
+- Subdirectories that do not contain a `SKILL.md` shall be logged as a warning and skipped; they shall not crash the service
+- The loaded skill instructions shall be injected into the system prompt on every LLM request, under an `## Available Skills` section, so the agent is always aware of its capabilities
+- Skills shall support hot-reload: editing or adding a `SKILL.md` file shall be picked up automatically via a `FileSystemWatcher`, or manually via the `/reloadskills` bot command
 - Skills shall be installable in two ways:
-  - **Manually** — the user drops a skill directory into the skills folder and triggers a hot-reload
-  - **Via agent** — the built-in Create Skill skill (see §5.4.1) generates and installs a new skill autonomously
-- A skill execution timeout shall be enforced (default: 30 seconds, configurable)
-- Subprocess-based skills shall be invoked with restricted process permissions and a configurable allowlist of permitted entry-point file extensions validated at load time; skills run in isolated processes with filesystem access limited to the workspace directory
+  - **Manually** — the user creates a subdirectory and writes a `SKILL.md` to it, then triggers `/reloadskills`
+  - **Via agent** — the agent uses its built-in file tools (`create_directory`, `write_file`) to write a new `SKILL.md` based on instructions from the user (guided by the `create_new_skill` skill — see §5.4.1)
 
-#### 5.4.1 Built-in: Create Skill
+#### 5.4.1 Built-in: Create New Skill
 
-ARIA shall ship with a built-in "Create Skill" skill that allows the agent to author, validate, and install new skills autonomously based on a natural-language description from the user.
+ARIA shall ship with a `create_new_skill` skill — a `SKILL.md` that instructs the LLM how to author new skills autonomously.
 
-- The skill shall prompt the LLM to produce a valid skill manifest and entry-point script/binary for the requested capability
-- The generated skill shall be written to a new subdirectory in the skills folder and the Skill Engine shall be triggered to hot-reload
-- The skill shall validate the generated manifest against the schema before installation and report any errors to the user via Telegram
-- The user shall be asked to confirm installation before the new skill is activated
+- The `create_new_skill/SKILL.md` shall be seeded into the skills directory on first run
+- When a user asks the agent to create a new skill, the agent follows the instructions in this file: it creates a new subdirectory under `workspace/skills/`, writes a `SKILL.md` describing the requested capability, and informs the user when done
+- No confirmation step or manifest validation is required — the agent writes Markdown, not executable code
+- The new skill is available immediately after the skill store reloads (automatic via file watcher)
 
 ### 5.5 Conversation History & Session Management
 
@@ -256,7 +253,7 @@ ARIA bundles Google OAuth 2.0 support so the user can authorize the agent to act
 | Category | Requirement |
 |---|---|
 | **Performance** | Response latency is bounded by local model inference speed. ARIA itself (excluding LLM) should add no more than 200ms overhead per turn. |
-| **Security** | No credentials or tokens stored in plain text. Workspace sandbox strictly enforced. Telegram bot accepts messages only from whitelisted user IDs. Subprocess skills run in isolated processes with restricted filesystem access. |
+| **Security** | No credentials or tokens stored in plain text. Workspace sandbox strictly enforced. Telegram bot accepts messages only from whitelisted user IDs. |
 | **Reliability** | Service auto-restarts on crash with backoff. Telegram reconnects automatically. Scheduled jobs are durable across restarts. Errors surfaced to user via Telegram when actionable. |
 | **Privacy** | All inference is local; no user data is transmitted to third-party AI services in v1. Google API calls are user-authorized and scoped to minimum required permissions. Context files remain on-device. |
 | **Extensibility** | LLM adapter, skill system, and Google scopes all designed for extension without core rewrites. |
@@ -296,7 +293,7 @@ C# with .NET 8 is the strongest fit for this project:
 | Installer | WiX Toolset v4 (MSI) or Inno Setup (.exe) |
 | Logging | Serilog with rolling file sink |
 | Configuration | `Microsoft.Extensions.Configuration` with JSON file provider |
-| Skill Manifests | `System.Text.Json` for JSON schema parsing |
+| Skill Files | `System.IO` file reading + `FileSystemWatcher` for hot-reload |
 
 ---
 
@@ -317,38 +314,71 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `google.clientSecret` | Google OAuth client secret — stored in Credential Store |
 | `agent.maxConversationTurns` | Maximum number of turns to load from the active session into context (default: 20) |
 | `agent.contextFileWatchEnabled` | Whether to watch context files for changes and hot-reload them (default: `true`) |
-| `skills.directory` | Path to skills folder (default: `{workspace}/skills`) |
-| `skills.executionTimeoutSeconds` | Per-tool execution timeout in seconds (default: 30) |
-| `skills.allowedEntryPoints` | Allowlist of permitted subprocess entry-point file extensions (e.g. `[".exe", ".ps1"]`) |
+| `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a `SKILL.md` is loaded as a skill |
 | `scheduler.enabled` | Whether the scheduler subsystem is active (default: `true`) |
 | `logging.level` | Minimum log level: `Verbose`, `Debug`, `Information`, `Warning`, `Error` |
 
 ---
 
-## 9. Skill Manifest Specification
+## 9. Skill File Specification
 
-Each skill lives in its own subdirectory under the skills folder and contains a `manifest.json` plus any supporting code or binaries.
+Each skill lives in its own subdirectory under the skills folder and contains a single `SKILL.md` file. There are no binaries, scripts, or manifest files — skills are pure Markdown.
 
-```json
-{
-  "name": "gmail-reader",
-  "version": "1.0.0",
-  "description": "Read and search Gmail messages",
-  "requiredGoogleScopes": ["https://www.googleapis.com/auth/gmail.readonly"],
-  "tools": [
-    {
-      "name": "search_gmail",
-      "description": "Search Gmail for messages matching a query",
-      "entryPoint": "GmailSkill.exe",
-      "parameters": { ... }
-    }
-  ]
-}
+```
+workspace/skills/
+├── create_new_skill/
+│   └── SKILL.md
+├── morning_briefing/
+│   └── SKILL.md
+└── draft_email/
+    └── SKILL.md
 ```
 
-The `entryPoint` field specifies a binary or script within the skill directory. ARIA invokes it with the tool name and JSON-encoded arguments, and reads JSON-encoded results from stdout. Skills may also be implemented as in-process plugins via a defined .NET interface, subject to final tech stack confirmation.
+### 9.1 SKILL.md Structure
 
-The Create Skill and Create Scheduled Job built-ins follow the same manifest format; their manifests are embedded in the ARIA binary and not stored on disk.
+A `SKILL.md` file should contain enough information for the LLM to carry out the capability without additional context. Recommended sections:
+
+```markdown
+# <Skill Name>
+
+## Purpose
+One or two sentences describing what this skill does.
+
+## Instructions
+Step-by-step guidance for how the agent should carry out this capability.
+Reference specific tools by name where relevant (e.g. `write_file`, `search_gmail`).
+
+## Example
+An example of a user request that would invoke this skill, and how the agent should respond.
+```
+
+There is no enforced schema — the format is a convention to make skills readable and effective. The agent loads the entire file content and includes it in the system prompt.
+
+### 9.2 create_new_skill
+
+The `create_new_skill` skill is seeded on first run and teaches the agent how to author new skills:
+
+```markdown
+# Create New Skill
+
+## Purpose
+Create a new skill by writing a SKILL.md file into the skills directory.
+
+## Instructions
+1. Ask the user what capability they want to add, if not already clear.
+2. Use `create_directory` to create `workspace/skills/<skill-name>/`.
+3. Use `write_file` to write `workspace/skills/<skill-name>/SKILL.md` with:
+   - A # heading with the skill name
+   - A ## Purpose section
+   - A ## Instructions section with enough detail for future use
+   - A ## Example section if helpful
+4. Inform the user the skill has been created and will be available immediately.
+
+## Example
+User: "Create a skill for drafting professional emails."
+Agent: Creates `workspace/skills/draft_email/SKILL.md` with instructions on
+tone, structure, and how to use write_file or send_email when ready.
+```
 
 ---
 

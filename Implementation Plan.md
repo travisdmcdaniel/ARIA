@@ -797,110 +797,121 @@ These are also used by the context file tools (IDENTITY.md, SOUL.md, USER.md) �
 
 ---
 
-### M6: Skill Engine + Create Skill
+### M6: Skill System
 
-**Goal:** External skills (loaded from the skills directory) work alongside built-in tools. The agent can author and install new skills.
+**Goal:** The agent can load and use `SKILL.md` instruction files, and can author new skills by writing new `SKILL.md` files.
 
-#### 3.6.1 Skill Manifest Loading (ARIA.Skills)
+Skills are plain Markdown files — not executables or manifests. Each skill lives at `workspace/skills/<skill-name>/SKILL.md` and contains natural-language instructions the LLM reads to understand how to perform a capability. There is no subprocess execution, no entry-point validation, and no code involved. The agent accesses skill instructions through its normal file-reading tools and through the system prompt.
 
-```csharp
-public class SkillManifest
-{
-    public string Name { get; set; } = "";
-    public string Version { get; set; } = "";
-    public string Description { get; set; } = "";
-    public List<string>? RequiredGoogleScopes { get; set; }
-    public List<SkillToolDefinition> Tools { get; set; } = [];
-}
-
-public class SkillToolDefinition
-{
-    public string Name { get; set; } = "";
-    public string Description { get; set; } = "";
-    public string EntryPoint { get; set; } = "";
-    public JsonElement Parameters { get; set; }
-}
-```
-
-On startup, scan the skills directory for `manifest.json` files. Validate each:
-- Required fields are present
-- `entryPoint` extension is in the `allowedEntryPoints` allowlist
-- `entryPoint` file actually exists within the skill's subdirectory
-- Parameter schema is valid JSON
-
-Rejected manifests log a warning and are skipped — they don't crash the service.
-
-#### 3.6.2 Subprocess Skill Execution
+#### 3.6.1 Skill Loader (ARIA.Skills)
 
 ```csharp
-public class SubprocessSkillExecutor : ISkillExecutor
+public record SkillEntry(string Name, string Directory, string Content);
+
+public class SkillLoader
 {
-    public async Task<ToolInvocationResult> ExecuteAsync(ToolInvocation invocation, CancellationToken ct)
+    private readonly string _skillsDirectory;
+
+    public IReadOnlyList<SkillEntry> Load()
     {
-        var startInfo = new ProcessStartInfo
+        if (!Directory.Exists(_skillsDirectory))
+            return [];
+
+        var entries = new List<SkillEntry>();
+        foreach (var dir in Directory.EnumerateDirectories(_skillsDirectory))
         {
-            FileName = _entryPointPath,
-            Arguments = $"--tool {invocation.ToolName}",
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = _skillDirectory
-        };
-
-        // Restrict environment: no access above workspace
-        startInfo.EnvironmentVariables["ARIA_WORKSPACE"] = _workspacePath;
-        startInfo.EnvironmentVariables["ARIA_SKILL_DIR"] = _skillDirectory;
-
-        using var process = Process.Start(startInfo)!;
-        await process.StandardInput.WriteLineAsync(invocation.ArgumentsJson);
-        process.StandardInput.Close();
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(_executionTimeout);
-
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
+            var skillFile = Path.Combine(dir, "SKILL.md");
+            if (!File.Exists(skillFile))
+            {
+                _logger.LogWarning("Skill directory {Dir} has no SKILL.md, skipping", dir);
+                continue;
+            }
+            var name = Path.GetFileName(dir);
+            var content = File.ReadAllText(skillFile);
+            entries.Add(new SkillEntry(name, dir, content));
         }
-        catch (OperationCanceledException)
-        {
-            process.Kill();
-            return new ToolInvocationResult(false, "{}", "Skill execution timed out.");
-        }
-
-        var stdout = await process.StandardOutput.ReadToEndAsync(ct);
-        return process.ExitCode == 0
-            ? new ToolInvocationResult(true, stdout, null)
-            : new ToolInvocationResult(false, "{}", await process.StandardError.ReadToEndAsync(ct));
+        return entries;
     }
 }
 ```
 
-For deeper isolation, consider launching the subprocess via a Job Object (Windows API) to enforce workspace-only filesystem access. This can be added without changing the interface — the `SubprocessSkillExecutor` can optionally attach a job object before the process starts. Defer this to M12 polish if it adds complexity.
+#### 3.6.2 Skill Store (ARIA.Skills)
 
-#### 3.6.3 Create Skill Built-in
+```csharp
+public class SkillStore : ISkillStore
+{
+    private ImmutableList<SkillEntry> _skills = ImmutableList<SkillEntry>.Empty;
+    private readonly SkillLoader _loader;
+    private FileSystemWatcher? _watcher;
 
-This is the most complex built-in. The flow:
+    public IReadOnlyList<SkillEntry> Skills => _skills;
 
-1. User sends: `"Create a skill that can check the current weather for a given city using the Open-Meteo API"`
-2. Agent invokes `create_skill` tool with `description` parameter
-3. Create Skill executor calls the LLM with a meta-prompt asking it to produce a `manifest.json` and entry point script
-4. Validate the generated manifest; report any schema errors back to the model for self-correction (up to 3 attempts)
-5. Write files to a temp directory within the workspace
-6. Present a summary to the user and ask for confirmation: `/confirm_skill` or `/reject_skill`
-7. On confirmation: move to the skills directory, trigger hot-reload
+    public Task ReloadAsync(CancellationToken ct)
+    {
+        _skills = _loader.Load().ToImmutableList();
+        _logger.LogInformation("Loaded {Count} skill(s)", _skills.Count);
+        return Task.CompletedTask;
+    }
 
-The entry point script is typically a PowerShell (`.ps1`) or a small C# script file. For maximum simplicity in v1, target `.ps1` — PowerShell is available on all modern Windows installs.
+    public void StartWatching(string skillsDirectory)
+    {
+        _watcher = new FileSystemWatcher(skillsDirectory, "SKILL.md")
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
+            EnableRaisingEvents = true
+        };
+        _watcher.Changed += (_, _) => _ = ReloadAsync(CancellationToken.None);
+        _watcher.Created += (_, _) => _ = ReloadAsync(CancellationToken.None);
+    }
+}
+```
+
+#### 3.6.3 Inject Skills into System Prompt
+
+In `SystemPromptBuilder`, append a `## Available Skills` section after the context files:
+
+```
+## Available Skills
+
+The following skills are available. Read the instructions in each to know how to apply them.
+
+### create_new_skill
+To create a new skill, create a new subdirectory under workspace/skills/<skill-name>/, then
+write a SKILL.md file within it. The SKILL.md should describe the capability and provide
+step-by-step instructions for how to carry it out. Use the create_directory and write_file
+tools to do this, then inform the user the skill is ready.
+
+### <other-skill-name>
+<content of that SKILL.md>
+```
+
+If the combined skill content would push the system prompt over the token budget, include only the skill name and first paragraph of each `SKILL.md`, noting that the agent can `read_file` the full content if needed.
+
+#### 3.6.4 Seed `create_new_skill` on First Run
+
+On first run (during `OnboardingFlow` or at `DatabaseMigrator` startup), write the `create_new_skill` skill to disk if it does not already exist:
+
+```csharp
+var skillDir = Path.Combine(_options.Skills.Directory, "create_new_skill");
+var skillFile = Path.Combine(skillDir, "SKILL.md");
+if (!File.Exists(skillFile))
+{
+    Directory.CreateDirectory(skillDir);
+    File.WriteAllText(skillFile, EmbeddedResources.CreateNewSkillMd);
+}
+```
+
+The `SKILL.md` content is an embedded string resource, not generated at runtime.
 
 #### M6 Acceptance Checklist
-- [ ] Skills directory is scanned at startup; valid skills register their tools
-- [ ] Invalid manifests log a warning and are skipped without crashing
-- [ ] LLM can invoke an external skill tool; result is returned to the conversation
-- [ ] Hot-reload works: dropping a new skill folder and triggering reload registers the new tools
-- [ ] Create Skill generates a working skill from a natural-language description
-- [ ] User confirmation is required before a generated skill is activated
+- [ ] Skills directory is scanned at startup; all `SKILL.md` files are loaded into `ISkillStore`
+- [ ] Subdirectories missing a `SKILL.md` log a warning and are skipped without crashing
+- [ ] Loaded skill instructions appear in the system prompt under `## Available Skills`
+- [ ] The agent can write a new skill using `create_directory` + `write_file` and the skill appears after `/reloadskills`
+- [ ] `/reloadskills` reloads the skill store and reports the new count
+- [ ] `create_new_skill/SKILL.md` is seeded on first run if absent
+- [ ] Editing an existing `SKILL.md` externally triggers automatic reload via `FileSystemWatcher`
 
 ---
 
