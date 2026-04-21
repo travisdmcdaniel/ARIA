@@ -21,6 +21,7 @@
   },
   "agent": {
     "maxConversationTurns": 20,
+    "sessionRetentionDays": 30,
     "contextFileWatchEnabled": true
   },
   "skills": {

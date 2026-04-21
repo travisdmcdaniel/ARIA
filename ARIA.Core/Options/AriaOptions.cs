@@ -75,6 +75,7 @@ public sealed class GoogleOptions
 public sealed class AgentOptions
 {
     public int MaxConversationTurns { get; set; } = 20;
+    public int SessionRetentionDays { get; set; } = 30;
     public bool ContextFileWatchEnabled { get; set; } = true;
     public int MaxToolCallIterations { get; set; } = 10;
     public int ContextTokenBudget { get; set; } = 4000;
