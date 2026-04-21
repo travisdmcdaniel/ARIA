@@ -30,6 +30,10 @@
   "scheduler": {
     "enabled": true
   },
+  "heartbeat": {
+    "enabled": true,
+    "intervalMinutes": 30
+  },
   "logging": {
     "level": "Debug"
   }

@@ -108,7 +108,19 @@
 - [ ] Update `MessageRouter` to call `ConversationLoop.RunTurnAsync` and stream partial responses back via `EditMessageTextAsync` on a placeholder message
 - [ ] Register `ILlmAdapter`, `ConversationLoop`, `SystemPromptBuilder` in DI; call `DetectCapabilitiesAsync` during startup
 
-**M3 done when:** Free-text question answered using Ollama; context files injected; multi-turn context retained; image handling works per capability flags.
+#### Step 3.4 — Heartbeat worker (`ARIA.Agent`)
+
+- [ ] `Heartbeat/HeartbeatWorker.cs` — `BackgroundService`; reads `HeartbeatOptions` from config; if `Enabled` is false, exits immediately
+- [ ] On each tick: read `HEARTBEAT.md` from `workspace/context/`; if the file does not exist, skip silently and log a debug message
+- [ ] Inject the file content as a synthetic user turn into `ConversationLoop.RunTurnAsync`; send the LLM response to all authorized Telegram user IDs via `IMessageRouter`
+- [ ] Timer interval driven by `HeartbeatOptions.IntervalMinutes`; first tick fires at the first interval boundary (not immediately on startup)
+- [ ] Register as a hosted service in `ARIA.Service/Program.cs`
+
+#### Step 3.5 — Seed `HEARTBEAT.md` (defer to M9)
+
+- [ ] During the M9 onboarding flow, seed `workspace/context/HEARTBEAT.md` with default starter content instructing the agent to reflect on recent activity, check for pending tasks, and proactively surface anything the user should know
+
+**M3 done when:** Free-text question answered using Ollama; context files injected; multi-turn context retained; image handling works per capability flags; heartbeat fires on schedule when enabled and `HEARTBEAT.md` exists.
 
 ---
 
@@ -292,10 +304,11 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 #### Step 11.2 — Named pipe IPC
 
 - [ ] `ARIA.Service/Ipc/StatusPipeServer.cs` — `NamedPipeServerStream`; serializes `AgentStatusMessage` JSON on each client connect
-- [ ] `AgentStatusMessage` record: `AgentStatus Status`, `string CurrentModel`, `bool GoogleConnected`, `int ActiveJobCount`, `DateTime LastActivity`
+- [ ] `AgentStatusMessage` record: `AgentStatus Status`, `string CurrentModel`, `bool GoogleConnected`, `int ActiveJobCount`, `DateTime LastActivity`, `bool IsPaused`
 - [ ] `ARIA.TrayHost/Ipc/StatusPipeClient.cs` — polls every 10 seconds; updates `NotifyIcon.Icon` (green/amber/red) and tooltip
+- [ ] **Replace file-based pause with pipe command:** Add a `PauseCommand` / `ResumeCommand` message type to the pipe protocol; `TrayApplication.TogglePause()` sends the command over the pipe instead of writing `PauseFlag`; `MessageRouter` reads the paused state from an in-memory flag set by the pipe server rather than checking `PauseFlag.IsSet`. Delete `ARIA.Core/Constants/PauseFlag.cs` once the pipe is live.
 
-**M11 done when:** All settings editable; Google OAuth connect/disconnect works from UI; tray icon color reflects live status; scheduled jobs listed and cancellable.
+**M11 done when:** All settings editable; Google OAuth connect/disconnect works from UI; tray icon color reflects live status; scheduled jobs listed and cancellable; Disable/Enable routed through pipe rather than flag file.
 
 ---
 

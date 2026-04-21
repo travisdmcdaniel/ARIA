@@ -9,6 +9,7 @@ public sealed class AriaOptions
     public AgentOptions Agent { get; set; } = new();
     public SkillsOptions Skills { get; set; } = new();
     public SchedulerOptions Scheduler { get; set; } = new();
+    public HeartbeatOptions Heartbeat { get; set; } = new();
     public LoggingOptions Logging { get; set; } = new();
 }
 
@@ -94,6 +95,19 @@ public sealed class SkillsOptions
 public sealed class SchedulerOptions
 {
     public bool Enabled { get; set; } = true;
+}
+
+public sealed class HeartbeatOptions
+{
+    /// <summary>
+    /// Whether the heartbeat cycle is active. When enabled, the agent reads
+    /// HEARTBEAT.md from the context directory and runs it through the LLM
+    /// at the configured interval, sending the result to all authorized users.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>How often the heartbeat fires, in minutes. Default: 30.</summary>
+    public int IntervalMinutes { get; set; } = 30;
 }
 
 public sealed class LoggingOptions
