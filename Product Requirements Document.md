@@ -150,14 +150,14 @@ ARIA shall maintain persistent conversation history across service restarts usin
 - All conversations shall be stored in a SQLite database at a configurable path (default: `workspace/aria.db`)
 - Each conversation record shall include at minimum: session ID, Telegram user ID, timestamp, role (user/assistant/tool), and message content
 - Sessions are the unit of contextual continuity. A session begins when the user starts a conversation (or issues `/new`) and persists until the user explicitly starts a new one
-- When building the LLM context window, ARIA shall load the most recent N turns from the active session (N = `agent.maxConversationTurns`, default 20), plus the injected context files (see §5.6)
+- When building the LLM context window, ARIA shall load the most recent N turns from the active session (N = `agent.maxConversationTurns`, default 20) only when `personality.memory.enabled` is true, plus the enabled context files (see §5.6)
 - Previous sessions are archived and retrievable via `/sessions` and `/resume`; they are never deleted automatically
 - Session data shall be associated with the Telegram user ID, so multiple authorized users maintain separate, isolated histories
 - A configurable retention policy shall allow older sessions to be excluded from the `/sessions` listing after a set number of days (they remain in the database but are not surfaced unless searched)
 
 ### 5.6 Agent Identity & Context Files
 
-ARIA's persona, behavioral traits, and user-specific knowledge are stored as Markdown files in a reserved directory within the workspace (default: `workspace/context/`). These files are injected into the system prompt on every LLM request and can be updated by the agent itself during normal operation and onboarding.
+ARIA's persona, behavioral traits, and user-specific knowledge are stored as Markdown files in a reserved directory within the workspace (default: `workspace/context/`). These files can be injected into the system prompt on each LLM request according to the `personality` configuration and can be updated by the agent itself during normal operation and onboarding.
 
 | File | Purpose & Contents |
 |---|---|
@@ -166,11 +166,15 @@ ARIA's persona, behavioral traits, and user-specific knowledge are stored as Mar
 | `USER.md` | Stores what the agent knows about the owner: name, preferences, occupation, interests, recurring tasks, and any other facts gathered through conversation. The agent updates this file proactively as it learns more. |
 
 - All three files shall be created (with default starter content) during the first-run setup wizard
+- `personality.identity.enabled` controls whether `IDENTITY.md` is included in the system prompt
+- `personality.soul.enabled` controls whether `SOUL.md` is included in the system prompt
+- `personality.user.enabled` controls whether `USER.md` is included in the system prompt
+- `personality.memory.enabled` controls whether recent conversation history is loaded into the LLM context window
 - The agent's in-world name shall be the first thing collected during the onboarding wizard; it is written into IDENTITY.md and used by the agent in all subsequent interactions
 - The agent shall be given explicit tool access to read and write these files as part of its built-in toolset
 - During the first session, the agent shall conduct a lightweight onboarding conversation to populate USER.md with basic information about the owner
-- The agent shall use information in USER.md to personalize responses without being prompted
-- Context files shall be injected into the system prompt before conversation history; their combined token footprint shall be monitored and a warning surfaced if they approach the model's context limit
+- When `personality.user.enabled` is true, the agent shall use information in USER.md to personalize responses without being prompted
+- Enabled context files shall be injected into the system prompt before conversation history; their combined token footprint shall be monitored and a warning surfaced if they approach the model's context limit
 - Users may directly edit context files; the agent shall re-read them on the next conversation turn after a modification is detected (via file watcher)
 - Context files are shared across all authorized Telegram users in v1
 
@@ -314,6 +318,10 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `google.clientSecret` | Google OAuth client secret — stored in Credential Store |
 | `agent.maxConversationTurns` | Maximum number of turns to load from the active session into context (default: 20) |
 | `agent.contextFileWatchEnabled` | Whether to watch context files for changes and hot-reload them (default: `true`) |
+| `personality.identity.enabled` | Whether to include `IDENTITY.md` in the system prompt (default: `true`) |
+| `personality.soul.enabled` | Whether to include `SOUL.md` in the system prompt (default: `true`) |
+| `personality.user.enabled` | Whether to include `USER.md` in the system prompt (default: `true`) |
+| `personality.memory.enabled` | Whether to include recent conversation history in the LLM context window (default: `true`) |
 | `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a `SKILL.md` is loaded as a skill |
 | `scheduler.enabled` | Whether the scheduler subsystem is active (default: `true`) |
 | `logging.level` | Minimum log level: `Verbose`, `Debug`, `Information`, `Warning`, `Error` |
@@ -384,7 +392,7 @@ tone, structure, and how to use write_file or send_email when ready.
 
 ## 10. Context File Specification
 
-Context files are Markdown documents stored in `workspace/context/`. They are prepended to the system prompt on every LLM request and are read/write accessible to the agent via built-in tools.
+Context files are Markdown documents stored in `workspace/context/`. They are prepended to the system prompt only when their corresponding `personality.*.enabled` setting is true and are read/write accessible to the agent via built-in tools.
 
 ### 10.1 IDENTITY.md — Who the Agent Is
 
@@ -470,13 +478,13 @@ Each authorized Telegram user has an isolated conversation history and session s
 |---|---|---|
 | **M1: Foundation** | Windows service skeleton + tray icon + WPF settings stub + config system + SQLite init | Service installs, starts, shows tray icon; reads config; logs to file; SQLite database created on first run |
 | **M2: Telegram Loop** | Bot connects, receives messages, sends text replies; `/status` and `/new` commands work | Authorized user can send a message and get a static echo reply; `/new` starts a fresh session |
-| **M3: LLM Integration** | Ollama adapter wired into conversation loop with context file injection and capability flags | Agent answers free-text questions using local model; context files injected; multi-turn context retained per session; image inputs passed through when model supports vision |
+| **M3: LLM Integration** | Ollama adapter wired into conversation loop with configurable context file injection and capability flags | Agent answers free-text questions using local model; enabled context files injected; multi-turn context retained per session when memory is enabled; image inputs passed through when model supports vision |
 | **M4: Conversation Persistence** | SQLite-backed history; session archive and resume via `/sessions` and `/resume` | History survives service restart; `/new` archives session; `/resume` restores it |
 | **M5: Workspace Tools** | File read/write/list/delete/move tools; sandbox enforcement | Agent can create, read, list, and delete files in workspace; path traversal attempts are rejected |
 | **M6: Skill Engine + Create Skill** | Manifest loader, tool dispatch, subprocess execution, Create Skill built-in | Sample skill loaded from disk; LLM invokes it; Create Skill generates and installs a new skill on request |
 | **M7: Scheduler + Create Scheduled Job** | Cron/interval job creation, persistence, firing, and Telegram notification; Create Scheduled Job built-in | User can define a job via natural language; job is confirmed, persisted, and fires on schedule; `/jobs` lists it; `/canceljob` removes it |
 | **M8: Google OAuth** | OAuth flow, token storage, Gmail + Calendar skills | User authorizes via `/connectgoogle`; agent reads inbox and calendar events; token refresh works silently |
-| **M9: Onboarding & Context Files** | First-run wizard, agent name collection, IDENTITY/SOUL/USER seeding, USER.md update tooling | Fresh install walks through onboarding; agent name set and written to IDENTITY.md; USER.md populated via conversational interview; context injected correctly; agent self-updates USER.md during conversation |
+| **M9: Onboarding & Context Files** | First-run wizard, agent name collection, IDENTITY/SOUL/USER seeding, USER.md update tooling | Fresh install walks through onboarding; agent name set and written to IDENTITY.md; USER.md populated via conversational interview; enabled context files are injected correctly; agent self-updates USER.md during conversation |
 | **M10: Installer** | WiX/Inno Setup installer + upgrade support + uninstaller | Clean install on fresh Windows machine; re-running newer installer upgrades in-place; uninstall removes all traces |
 | **M11: WPF Settings UI** | Full settings window with all configuration fields and OAuth status | All settings editable via UI; Google OAuth status shown; service restart prompted on change |
 | **M12: Polish & Hardening** | Error handling, reconnect logic, context file watcher, documentation, resource limits | Agent recovers from Ollama restart and Telegram disconnect; context file edits hot-reloaded; idle memory under 100MB |

@@ -300,6 +300,8 @@ public class AriaOptions
     public AgentOptions Agent { get; set; } = new();
     public SkillsOptions Skills { get; set; } = new();
     public SchedulerOptions Scheduler { get; set; } = new();
+    public HeartbeatOptions Heartbeat { get; set; } = new();
+    public PersonalityOptions Personality { get; set; } = new();
     public LoggingOptions Logging { get; set; } = new();
 }
 ```
@@ -631,12 +633,14 @@ public class ConversationLoop
         if (images?.Count > 0 && !_llmAdapter.Capabilities.SupportsVision)
             return "The current model does not support image input. Please switch to a vision-capable model.";
 
-        // 2. Build system prompt: inject context files
+        // 2. Build system prompt: inject enabled context files
         var systemPrompt = await BuildSystemPromptAsync(ct);
 
-        // 3. Load recent conversation history
-        var history = await _conversationStore.GetRecentTurnsAsync(
-            session.SessionId, _options.MaxConversationTurns, ct);
+        // 3. Load recent conversation history when memory is enabled
+        var history = _options.Personality.Memory.Enabled
+            ? await _conversationStore.GetRecentTurnsAsync(
+                session.SessionId, _options.MaxConversationTurns, ct)
+            : [];
 
         // 4. Persist the incoming user turn
         await _conversationStore.AppendTurnAsync(new ConversationTurn(
@@ -690,12 +694,14 @@ public class ConversationLoop
 
 **Key decisions here:**
 - `MaxToolCallIterations` prevents infinite tool-call loops. 10 is a reasonable default.
-- The system prompt injection happens every turn. Keep context file reads fast (cache in memory, invalidate via file watcher).
+- The system prompt injection happens every turn, but `IDENTITY.md`, `SOUL.md`, and `USER.md` are included only when `personality.identity.enabled`, `personality.soul.enabled`, and `personality.user.enabled` are true. Keep context file reads fast (cache in memory, invalidate via file watcher).
+- Recent session history is included only when `personality.memory.enabled` is true.
 - For streaming, stream the assistant text response back to Telegram as chunks via `bot.EditMessageTextAsync` on a placeholder message — this gives a typing-indicator-like effect.
 
 #### M3 Acceptance Checklist
 - [ ] Agent answers a free-text question using the local Ollama model
-- [ ] System prompt includes IDENTITY.md, SOUL.md, USER.md content
+- [ ] System prompt includes only the enabled `IDENTITY.md`, `SOUL.md`, and `USER.md` content
+- [ ] Recent conversation history is omitted when `personality.memory.enabled` is false
 - [ ] Multi-turn context is retained within a session
 - [ ] Sending an image to a vision-capable model produces a meaningful response
 - [ ] Sending an image to a non-vision model produces a clear "not supported" message
@@ -1140,15 +1146,15 @@ After the interview, the agent writes the collected facts to USER.md using the `
 Build the system prompt by concatenating:
 
 ```
-[IDENTITY.md content]
-[SOUL.md content]
-[USER.md content]
+[IDENTITY.md content, when personality.identity.enabled is true]
+[SOUL.md content, when personality.soul.enabled is true]
+[USER.md content, when personality.user.enabled is true]
 ---
 Current date and time: {DateTime.Now}
 Active session: {sessionId}
 ```
 
-Monitor combined token count. A rough estimate: 1 token ≈ 4 characters. If the context files exceed the configured limit (default 4,000 tokens), append a warning to the system prompt instructing the model to tell the user and suggest summarising.
+Monitor combined token count for enabled context files. A rough estimate: 1 token ≈ 4 characters. If the context files exceed the configured limit (default 4,000 tokens), append a warning to the system prompt instructing the model to tell the user and suggest summarising. Recent conversation history is loaded separately and only when `personality.memory.enabled` is true.
 
 #### 3.9.3 File Watcher
 
@@ -1177,9 +1183,9 @@ The cache in `IContextFileStore` is a simple `Dictionary<ContextFile, (string Co
 - [ ] IDENTITY.md is seeded with the user's chosen agent name
 - [ ] SOUL.md and USER.md are seeded with default content
 - [ ] USER.md is populated via conversational interview during first session
-- [ ] Context files are injected correctly into every LLM request
+- [ ] Enabled context files are injected correctly into LLM requests
 - [ ] Editing a context file externally triggers a cache invalidation; next request uses new content
-- [ ] Agent uses USER.md information (e.g. user's name, timezone) in responses without being prompted
+- [ ] Agent uses USER.md information (e.g. user's name, timezone) in responses without being prompted when `personality.user.enabled` is true
 - [ ] Context file token budget warning fires when files approach the limit
 
 ---

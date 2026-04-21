@@ -33,7 +33,7 @@
 
 #### Step 1.1 — Core abstractions (`ARIA.Core`)
 
-- [ ] `Options/AriaOptions.cs` — top-level config POCO with nested `WorkspaceOptions`, `OllamaOptions`, `TelegramOptions`, `GoogleOptions`, `AgentOptions`, `SkillsOptions`, `SchedulerOptions`, `LoggingOptions`
+- [ ] `Options/AriaOptions.cs` — top-level config POCO with nested `WorkspaceOptions`, `OllamaOptions`, `TelegramOptions`, `GoogleOptions`, `AgentOptions`, `SkillsOptions`, `SchedulerOptions`, `HeartbeatOptions`, `PersonalityOptions`, `LoggingOptions`
 - [ ] `Models/Session.cs` — `record Session(string SessionId, long TelegramUserId, DateTime StartedAt, DateTime LastActivityAt, bool IsActive)`
 - [ ] `Models/ConversationTurn.cs` — `record ConversationTurn(long TurnId, string SessionId, long TelegramUserId, DateTime Timestamp, string Role, string? TextContent, string? ToolCallsJson, string? ToolResultJson, string? ImageDataJson)`
 - [ ] `Models/ScheduledJob.cs` — `record ScheduledJob(...)` + `record JobExecutionLog(...)`
@@ -117,8 +117,8 @@
 
 - [ ] `Conversation/ConversationLoop.cs` — full agentic loop:
   1. Check vision capability; reject with message if image sent to non-vision model
-  2. `BuildSystemPromptAsync()` — reads and concatenates `IDENTITY.md`, `SOUL.md`, `USER.md`; appends skill summaries from `ISkillStore`; appends current UTC time and session ID
-  3. Load recent N turns from `IConversationStore`
+  2. `BuildSystemPromptAsync()` — conditionally reads and concatenates context files based on config: `personality.identity.enabled` controls `IDENTITY.md`, `personality.soul.enabled` controls `SOUL.md`, and `personality.user.enabled` controls `USER.md`; appends skill summaries from `ISkillStore`; appends current UTC time and session ID
+  3. Load recent N turns from `IConversationStore` only when `personality.memory.enabled` is true
   4. Persist incoming user turn
   5. Loop up to `MaxToolCallIterations` (10): call `ILlmAdapter.CompleteAsync` → if tool calls, execute via `IToolRegistry`, append results, continue; else break with final text
   6. Persist assistant turn
@@ -141,7 +141,7 @@
 
 - [ ] During the M9 onboarding flow, seed `workspace/context/HEARTBEAT.md` with default starter content instructing the agent to reflect on recent activity, check for pending tasks, and proactively surface anything the user should know
 
-**M3 done when:** Free-text question answered using Ollama; context files injected; multi-turn context retained; image handling works per capability flags; heartbeat fires on schedule when enabled and `HEARTBEAT.md` exists.
+**M3 done when:** Free-text question answered using Ollama; enabled context files are injected; multi-turn context is retained only when `personality.memory.enabled` is true; image handling works per capability flags; heartbeat fires on schedule when enabled and `HEARTBEAT.md` exists.
 
 ---
 
@@ -294,7 +294,7 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 
 - [ ] In `SystemPromptBuilder.cs`: estimate combined token count; append warning message if over threshold (default 4,000 tokens)
 
-**M9 done when:** Fresh run triggers wizard; agent name written to `IDENTITY.md`; `USER.md` populated via interview; context injected correctly; file edits hot-reloaded.
+**M9 done when:** Fresh run triggers wizard; agent name written to `IDENTITY.md`; `USER.md` populated via interview; enabled context files are injected correctly; file edits hot-reloaded.
 
 ---
 

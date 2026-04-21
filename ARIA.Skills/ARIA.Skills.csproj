@@ -7,6 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="External\**" />
+    <EmbeddedResource Remove="External\**" />
+    <None Remove="External\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ARIA.Core\ARIA.Core.csproj" />
     <ProjectReference Include="..\ARIA.Memory\ARIA.Memory.csproj" />
   </ItemGroup>
@@ -15,7 +21,6 @@
     <Folder Include="BuiltIn\FileTools\" />
     <Folder Include="BuiltIn\CreateSkill\" />
     <Folder Include="BuiltIn\CreateScheduledJob\" />
-    <Folder Include="External\" />
     <Folder Include="Sandbox\" />
   </ItemGroup>
 

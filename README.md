@@ -33,6 +33,10 @@ Configuration lives at `%LOCALAPPDATA%\ARIA\config.json`. The file is created on
 | `ollama.model` | `gemma4:e4b` | Model name to use |
 | `telegram.authorizedUserIds` | `[]` | Telegram user IDs permitted to interact |
 | `agent.maxConversationTurns` | `20` | Turns loaded from history per request |
+| `personality.identity.enabled` | `true` | Include `IDENTITY.md` in the system prompt |
+| `personality.soul.enabled` | `true` | Include `SOUL.md` in the system prompt |
+| `personality.user.enabled` | `true` | Include `USER.md` in the system prompt |
+| `personality.memory.enabled` | `true` | Include recent conversation history in LLM context |
 | `skills.directory` | `%USERPROFILE%\ARIAWorkspace\skills` | Directory scanned for `SKILL.md` files |
 
 **Sensitive values** (bot token, Google client secret, OAuth tokens) are stored via Windows DPAPI — never in `config.json`.

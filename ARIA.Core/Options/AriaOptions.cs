@@ -10,6 +10,7 @@ public sealed class AriaOptions
     public SkillsOptions Skills { get; set; } = new();
     public SchedulerOptions Scheduler { get; set; } = new();
     public HeartbeatOptions Heartbeat { get; set; } = new();
+    public PersonalityOptions Personality { get; set; } = new();
     public LoggingOptions Logging { get; set; } = new();
 }
 
@@ -108,6 +109,24 @@ public sealed class HeartbeatOptions
 
     /// <summary>How often the heartbeat fires, in minutes. Default: 30.</summary>
     public int IntervalMinutes { get; set; } = 30;
+}
+
+public sealed class PersonalityOptions
+{
+    public PersonalityFileOptions Soul { get; set; } = new();
+    public PersonalityFileOptions Identity { get; set; } = new();
+    public PersonalityFileOptions User { get; set; } = new();
+    public PersonalityMemoryOptions Memory { get; set; } = new();
+}
+
+public sealed class PersonalityFileOptions
+{
+    public bool Enabled { get; set; } = true;
+}
+
+public sealed class PersonalityMemoryOptions
+{
+    public bool Enabled { get; set; } = true;
 }
 
 public sealed class LoggingOptions

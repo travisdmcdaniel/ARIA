@@ -34,6 +34,20 @@
     "enabled": true,
     "intervalMinutes": 30
   },
+  "personality": {
+    "soul": {
+      "enabled": true
+    },
+    "identity": {
+      "enabled": true
+    },
+    "memory": {
+      "enabled": true
+    },
+    "user": {
+      "enabled": true
+    }
+  },
   "logging": {
     "level": "Debug"
   }
