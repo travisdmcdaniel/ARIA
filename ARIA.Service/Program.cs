@@ -1,10 +1,15 @@
+using ARIA.Agent.Conversation;
+using ARIA.Agent.Prompts;
 using ARIA.Core.Interfaces;
 using ARIA.Core.Options;
+using ARIA.LlmAdapter.Ollama;
 using ARIA.Memory.Context;
 using ARIA.Memory.Migrations;
 using ARIA.Memory.Sqlite;
 using ARIA.Service;
 using ARIA.Service.Security;
+using ARIA.Skills.BuiltIn;
+using ARIA.Skills.Loader;
 using ARIA.Telegram.Commands;
 using ARIA.Telegram.Handlers;
 using Microsoft.Extensions.Options;
@@ -73,6 +78,22 @@ try
         var logger = sp.GetRequiredService<ILogger<DatabaseMigrator>>();
         return new DatabaseMigrator(dbPath, logger);
     });
+
+    // ── LLM adapter ───────────────────────────────────────────────────────────
+    builder.Services.AddSingleton<ILlmAdapter>(sp =>
+    {
+        var opts = sp.GetRequiredService<IOptions<AriaOptions>>().Value.Ollama;
+        return new OllamaAdapter(opts);
+    });
+
+    // ── Skills / tool registry (no-op stubs until M5 and M6) ─────────────────
+    builder.Services.AddSingleton<IToolRegistry, EmptyToolRegistry>();
+    builder.Services.AddSingleton<ISkillStore, EmptySkillStore>();
+
+    // ── Agent ─────────────────────────────────────────────────────────────────
+    builder.Services.AddSingleton<SystemPromptBuilder>();
+    builder.Services.AddSingleton<ConversationLoop>();
+    builder.Services.AddSingleton<IAgentTurnHandler>(sp => sp.GetRequiredService<ConversationLoop>());
 
     // ── Telegram commands ─────────────────────────────────────────────────────
     // General

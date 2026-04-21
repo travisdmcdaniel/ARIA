@@ -33,4 +33,19 @@ public static class BotClientExtensions
         string text,
         CancellationToken ct = default) =>
         bot.SendMessage(chatId, text, cancellationToken: ct);
+
+    /// <summary>
+    /// Sends an HTML-formatted message. The caller is responsible for encoding
+    /// text content via LlmResponseFormatter or manual HTML encoding.
+    /// </summary>
+    public static Task<Message> SendHtmlAsync(
+        this ITelegramBotClient bot,
+        ChatId chatId,
+        string htmlText,
+        CancellationToken ct = default) =>
+        bot.SendMessage(
+            chatId,
+            htmlText,
+            parseMode: ParseMode.Html,
+            cancellationToken: ct);
 }
