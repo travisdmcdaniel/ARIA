@@ -807,12 +807,12 @@ These are also used by the context file tools (IDENTITY.md, SOUL.md, USER.md) �
 
 **Goal:** The agent can load and use `SKILL.md` instruction files, and can author new skills by writing new `SKILL.md` files.
 
-Skills are plain Markdown files — not executables or manifests. Each skill lives at `workspace/skills/<skill-name>/SKILL.md` and contains natural-language instructions the LLM reads to understand how to perform a capability. There is no subprocess execution, no entry-point validation, and no code involved. The agent accesses skill instructions through its normal file-reading tools and through the system prompt.
+Skills are plain Markdown files — not executables or manifests. Each skill lives at `workspace/skills/<skill-name>/SKILL.md`. Every `SKILL.md` begins with YAML front matter bracketed by `---` lines and includes `name` and `description`. The Markdown body contains the full natural-language instructions for the capability. There is no subprocess execution, no entry-point validation, and no code involved. The system prompt lists only skill metadata and file paths; the agent reads the full selected `SKILL.md` through its normal file-reading tools when it decides the skill is relevant.
 
 #### 3.6.1 Skill Loader (ARIA.Skills)
 
 ```csharp
-public record SkillEntry(string Name, string Directory, string Content);
+public record SkillEntry(string Name, string Description, string Directory, string Path);
 
 public class SkillLoader
 {
@@ -832,9 +832,15 @@ public class SkillLoader
                 _logger.LogWarning("Skill directory {Dir} has no SKILL.md, skipping", dir);
                 continue;
             }
-            var name = Path.GetFileName(dir);
-            var content = File.ReadAllText(skillFile);
-            entries.Add(new SkillEntry(name, dir, content));
+            var metadata = SkillFrontMatter.Parse(File.ReadAllText(skillFile));
+            if (string.IsNullOrWhiteSpace(metadata.Name) ||
+                string.IsNullOrWhiteSpace(metadata.Description))
+            {
+                _logger.LogWarning("Skill file {SkillFile} is missing required name or description front matter", skillFile);
+                continue;
+            }
+
+            entries.Add(new SkillEntry(metadata.Name, metadata.Description, dir, skillFile));
         }
         return entries;
     }
@@ -875,24 +881,24 @@ public class SkillStore : ISkillStore
 
 #### 3.6.3 Inject Skills into System Prompt
 
-In `SystemPromptBuilder`, append a `## Available Skills` section after the context files:
+In `SystemPromptBuilder`, append a `## Available Skills` section after the context files. Include only the skill metadata and the `SKILL.md` path, not the full file body:
 
 ```
 ## Available Skills
 
-The following skills are available. Read the instructions in each to know how to apply them.
+The following skills are available. Select relevant skills by name and description.
+When a skill is relevant, use read_file to read its SKILL.md path before applying it.
 
-### create_new_skill
-To create a new skill, create a new subdirectory under workspace/skills/<skill-name>/, then
-write a SKILL.md file within it. The SKILL.md should describe the capability and provide
-step-by-step instructions for how to carry it out. Use the create_directory and write_file
-tools to do this, then inform the user the skill is ready.
+- name: create_new_skill
+  description: Create or update Markdown skills in the workspace skills directory.
+  path: skills/create_new_skill/SKILL.md
 
-### <other-skill-name>
-<content of that SKILL.md>
+- name: <other-skill-name>
+  description: <description from YAML front matter>
+  path: skills/<other-skill-name>/SKILL.md
 ```
 
-If the combined skill content would push the system prompt over the token budget, include only the skill name and first paragraph of each `SKILL.md`, noting that the agent can `read_file` the full content if needed.
+The full `SKILL.md` content is intentionally not injected into the prompt. This keeps prompt size stable and forces the LLM to explicitly read only the skill instructions it needs.
 
 #### 3.6.4 Seed `create_new_skill` on First Run
 
@@ -908,12 +914,24 @@ if (!File.Exists(skillFile))
 }
 ```
 
-The `SKILL.md` content is an embedded string resource, not generated at runtime.
+The seeded `SKILL.md` includes YAML front matter:
+
+```yaml
+---
+name: create_new_skill
+description: Create or update Markdown skills in the workspace skills directory.
+---
+```
+
+The remaining Markdown content is an embedded string resource, not generated at runtime.
 
 #### M6 Acceptance Checklist
-- [ ] Skills directory is scanned at startup; all `SKILL.md` files are loaded into `ISkillStore`
+- [ ] `skills.enabled` controls whether skills are loaded and injected
+- [ ] Skills directory is scanned at startup; all valid `SKILL.md` metadata is loaded into `ISkillStore`
 - [ ] Subdirectories missing a `SKILL.md` log a warning and are skipped without crashing
-- [ ] Loaded skill instructions appear in the system prompt under `## Available Skills`
+- [ ] `SKILL.md` files missing YAML front matter, `name`, or `description` log a warning and are skipped without crashing
+- [ ] Loaded skill name, description, and path appear in the system prompt under `## Available Skills`
+- [ ] Full skill instructions are read on demand through `read_file`, not injected into every prompt
 - [ ] The agent can write a new skill using `create_directory` + `write_file` and the skill appears after `/reloadskills`
 - [ ] `/reloadskills` reloads the skill store and reports the new count
 - [ ] `create_new_skill/SKILL.md` is seeded on first run if absent

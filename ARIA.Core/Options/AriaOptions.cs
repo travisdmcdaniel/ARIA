@@ -83,6 +83,7 @@ public sealed class AgentOptions
 
 public sealed class SkillsOptions
 {
+    public bool Enabled { get; set; } = true;
     public string Directory { get; set; } = "skills";
 
     public string GetResolvedDirectory(string workspaceRoot)

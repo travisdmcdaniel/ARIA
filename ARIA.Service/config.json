@@ -25,6 +25,7 @@
     "contextFileWatchEnabled": true
   },
   "skills": {
+    "enabled": true,
     "directory": "skills",
     "executionTimeoutSeconds": 300
   },

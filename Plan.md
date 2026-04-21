@@ -40,7 +40,7 @@
 - [ ] `Models/ScheduledJob.cs` — `record ScheduledJob(...)` + `record JobExecutionLog(...)`
 - [ ] `Models/LlmModels.cs` — `record LlmCapabilities`, `record ChatMessage`, `record ToolCall`, `record ToolResult`, `record LlmResponse`, `record ImageAttachment`
 - [ ] `Models/ToolModels.cs` — `record ToolDefinition`, `record ToolInvocation`, `record ToolInvocationResult`
-- [ ] `Models/SkillModels.cs` — `record SkillEntry(string Name, string Directory, string Content)` — represents a loaded `SKILL.md`
+- [ ] `Models/SkillModels.cs` — `record SkillEntry(string Name, string Description, string Directory, string Path)` — represents loaded metadata from a `SKILL.md`
 - [ ] `Interfaces/IConversationStore.cs`
 - [ ] `Interfaces/IContextFileStore.cs` — includes `ContextFile` enum (`Identity`, `Soul`, `User`)
 - [ ] `Interfaces/ILlmAdapter.cs`
@@ -197,20 +197,20 @@
 
 ### M6 — Skill System (SKILL.md loader)
 
-Skills are Markdown instruction files, not executables. Each skill lives at `workspace/skills/<skill-name>/SKILL.md` and contains natural-language instructions the LLM reads to understand how to perform a complex capability. The `create_new_skill` skill is itself a `SKILL.md` that teaches the agent how to author new skills.
+Skills are Markdown instruction files, not executables. Each skill lives at `workspace/skills/<skill-name>/SKILL.md`. Every `SKILL.md` starts with YAML front matter bracketed by `---` lines and must include `name` and `description`. The skill body contains natural-language instructions, but the body is not injected into every system prompt. Instead, the prompt includes only each skill's name, description, and `SKILL.md` path; the LLM chooses relevant skills from that list and uses file tools to read the full `SKILL.md` when needed. The `create_new_skill` skill is itself a `SKILL.md` that teaches the agent how to author new skills.
 
 #### Step 6.1 — Skill loader (`ARIA.Skills/Loader`)
 
-- [ ] `SkillLoader.cs` — scans `workspace/skills/`; for each subdirectory containing a `SKILL.md`, reads the file and produces a `SkillEntry(Name, Directory, Content)`; logs a warning for subdirectories missing `SKILL.md`; supports reload via `FileSystemWatcher` on the skills directory
+- [ ] `SkillLoader.cs` — scans `workspace/skills/`; if `skills.enabled` is false, loads no skills; for each subdirectory containing a `SKILL.md`, parses YAML front matter and produces a `SkillEntry(Name, Description, Directory, Path)`; logs a warning and skips files missing valid front matter, `name`, or `description`; logs a warning for subdirectories missing `SKILL.md`; supports reload via `FileSystemWatcher` on the skills directory
 - [ ] `SkillStore.cs` — implements `ISkillStore`; holds the loaded `SkillEntry` list in memory; exposes `ReloadAsync()` and the current list; thread-safe (use `ImmutableList` or lock on swap)
 
 #### Step 6.2 — Inject skills into system prompt
 
-- [ ] Update `SystemPromptBuilder.cs` to include a `## Available Skills` section listing each skill name and its `SKILL.md` content (or a brief summary if token budget is tight); the LLM uses this to know what capabilities it has and how to apply them
+- [ ] Update `SystemPromptBuilder.cs` to include a `## Available Skills` section listing each skill's name, description, and workspace-relative `SKILL.md` path. The LLM uses this metadata to decide which skills apply, then calls `read_file` to load the full `SKILL.md` instructions for selected skills before applying them.
 
 #### Step 6.3 — Seed the `create_new_skill` skill
 
-- [ ] On first run (detected in `OnboardingFlow` or `DatabaseMigrator`), write `workspace/skills/create_new_skill/SKILL.md` with instructions telling the LLM: "To create a new skill, create a subdirectory under `workspace/skills/<skill-name>/`, then write a `SKILL.md` file within it describing the capability and how to use it. Use the `create_directory` and `write_file` tools to do this."
+- [ ] On first run (detected in `OnboardingFlow` or `DatabaseMigrator`), write `workspace/skills/create_new_skill/SKILL.md` with YAML front matter containing `name` and `description`, followed by instructions telling the LLM: "To create a new skill, create a subdirectory under `workspace/skills/<skill-name>/`, then write a `SKILL.md` file within it. Include YAML front matter with `name` and `description`, then describe the capability and how to use it. Use the `create_directory` and `write_file` tools to do this."
 - [ ] After writing, trigger `ISkillStore.ReloadAsync()` so the new skill is immediately available
 
 #### Step 6.4 — `/reloadskills` bot command (`ARIA.Telegram`)
@@ -221,7 +221,7 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 
 The onboarding process is skill-driven: a `SKILL.md` instructs the LLM how to conduct the interview and write the context files. The `/onboarding` command injects a synthetic turn into the conversation loop, which the LLM resolves using the skill.
 
-- [ ] On first run (alongside `create_new_skill`), write `workspace/skills/onboarding/SKILL.md` — instructs the LLM to:
+- [ ] On first run (alongside `create_new_skill`), write `workspace/skills/onboarding/SKILL.md` with YAML front matter containing `name` and `description`, followed by instructions telling the LLM to:
   1. Greet the user and explain the setup process
   2. Ask for the agent's in-world name; write it into `IDENTITY.md` via `write_context_file`
   3. Ask 4–6 questions about the user (name, occupation, timezone, preferences, recurring tasks); write answers to `USER.md`
@@ -230,7 +230,7 @@ The onboarding process is skill-driven: a `SKILL.md` instructs the LLM how to co
 - [ ] Update `OnboardingCommand.cs` (stub registered in M2): inject `IAgentTurnHandler`; call `RunTurnAsync` with a synthetic prompt: `"Please begin the onboarding process as described in your available skills."`; send typing indicator while running
 - [ ] First-run auto-trigger: in `AgentWorker` (or `MarkdownContextFileStore`), detect absence of `IDENTITY.md` and log a hint to the user via Telegram to run `/onboarding`
 
-**M6 done when:** All `SKILL.md` files loaded at startup; skill instructions in system prompt; agent can write new skills; `/reloadskills` hot-reloads; `/onboarding` triggers the skill-driven interview and writes IDENTITY.md, SOUL.md, USER.md.
+**M6 done when:** All valid `SKILL.md` metadata is loaded at startup when `skills.enabled` is true; the system prompt lists skill names, descriptions, and paths; the agent can read selected skill files via file tools; the agent can write new skills with valid YAML front matter; `/reloadskills` hot-reloads; `/onboarding` triggers the skill-driven interview and writes IDENTITY.md, SOUL.md, USER.md.
 
 ---
 

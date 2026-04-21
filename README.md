@@ -7,7 +7,7 @@ A Windows-native background service that acts as a personal AI agent. ARIA runs 
 - **Telegram interface** — send messages, images, and commands from any device; only whitelisted user IDs can interact with the bot
 - **Local LLM** — powered by Ollama with any compatible model; supports streaming, tool calling, and vision (when the model supports it)
 - **Workspace file access** — the agent can read, write, and manage files within a sandboxed workspace directory
-- **Skill system** — extend the agent by adding `SKILL.md` Markdown files under `workspace/skills/`; each file teaches the LLM how to perform a capability; the agent can write new skills itself
+- **Skill system** — extend the agent by adding `SKILL.md` Markdown files under `workspace/skills/`; each file has YAML front matter for discovery and body instructions the LLM can read on demand; the agent can write new skills itself
 - **Scheduled tasks** — define recurring jobs in natural language; the agent runs them on schedule and sends results via Telegram
 - **Google integration** — authorize access to Gmail and Google Calendar via OAuth; token refresh is automatic
 - **Persistent memory** — conversation history stored in SQLite, survives restarts; sessions can be archived and resumed
@@ -37,7 +37,8 @@ Configuration lives at `%LOCALAPPDATA%\ARIA\config.json`. The file is created on
 | `personality.soul.enabled` | `true` | Include `SOUL.md` in the system prompt |
 | `personality.user.enabled` | `true` | Include `USER.md` in the system prompt |
 | `personality.memory.enabled` | `true` | Include recent conversation history in LLM context |
-| `skills.directory` | `%USERPROFILE%\ARIAWorkspace\skills` | Directory scanned for `SKILL.md` files |
+| `skills.enabled` | `true` | Enable skill metadata loading and prompt injection |
+| `skills.directory` | `%USERPROFILE%\ARIAWorkspace\skills` | Directory scanned for valid `SKILL.md` files |
 
 **Sensitive values** (bot token, Google client secret, OAuth tokens) are stored via Windows DPAPI — never in `config.json`.
 
@@ -65,9 +66,18 @@ workspace/skills/
     └── SKILL.md
 ```
 
-The `SKILL.md` contains natural-language instructions the LLM reads to understand how to carry out the capability — there is no executable code involved. Skills are injected into the agent's system prompt so it knows what it can do and how to do it.
+Each `SKILL.md` starts with YAML front matter bracketed by `---` lines:
 
-The agent ships with a `create_new_skill` skill whose `SKILL.md` teaches it how to author new skills: create a subdirectory, write a `SKILL.md` describing the capability, then trigger a reload. New skills can also be added manually by dropping a folder into the skills directory and running `/reloadskills`.
+```markdown
+---
+name: My Skill
+description: One or two sentences describing when to use this skill.
+---
+```
+
+The system prompt includes each skill's name, description, and `SKILL.md` path, not the full instruction body. When the LLM decides a skill is relevant, it uses file tools to read that `SKILL.md` and then follows the instructions in the Markdown body. There is no executable code involved.
+
+The agent ships with a `create_new_skill` skill whose `SKILL.md` teaches it how to author new skills: create a subdirectory, write a `SKILL.md` with required YAML front matter and body instructions, then trigger a reload. New skills can also be added manually by dropping a folder into the skills directory and running `/reloadskills`.
 
 ## Development
 

@@ -127,9 +127,13 @@ The Telegram bot is the primary user-facing interface for ARIA in v1.
 Skills are Markdown instruction files that extend what the agent knows how to do. Each skill is a `SKILL.md` file inside its own subdirectory under the workspace skills directory. Skills contain natural-language instructions the LLM reads to understand how to carry out a capability — there is no executable code, subprocess, or manifest involved.
 
 - Each skill shall be a `SKILL.md` file stored at `workspace/skills/<skill-name>/SKILL.md`
-- ARIA shall scan the skills directory at startup and load all `SKILL.md` files into an in-memory skill store
+- Each `SKILL.md` shall begin with YAML front matter bracketed by `---` lines
+- Required YAML front matter fields are `name` and `description`
+- ARIA shall scan the skills directory at startup and load each valid skill's name, description, directory, and `SKILL.md` path into an in-memory skill store
 - Subdirectories that do not contain a `SKILL.md` shall be logged as a warning and skipped; they shall not crash the service
-- The loaded skill instructions shall be injected into the system prompt on every LLM request, under an `## Available Skills` section, so the agent is always aware of its capabilities
+- `SKILL.md` files that are unreadable or missing valid front matter, `name`, or `description` shall be logged as a warning and skipped; they shall not crash the service or clear previously loaded valid skills
+- The system prompt shall include an `## Available Skills` section listing each skill's name, description, and workspace-relative `SKILL.md` path
+- Full skill instructions shall not be injected into every system prompt; when a skill is relevant, the LLM shall use file tools to read that skill's `SKILL.md` file before applying its instructions
 - Skills shall support hot-reload: editing or adding a `SKILL.md` file shall be picked up automatically via a `FileSystemWatcher`, or manually via the `/reloadskills` bot command
 - Skills shall be installable in two ways:
   - **Manually** — the user creates a subdirectory and writes a `SKILL.md` to it, then triggers `/reloadskills`
@@ -333,7 +337,8 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `personality.soul.enabled` | Whether to include `SOUL.md` in the system prompt (default: `true`) |
 | `personality.user.enabled` | Whether to include `USER.md` in the system prompt (default: `true`) |
 | `personality.memory.enabled` | Whether to include recent conversation history in the LLM context window (default: `true`) |
-| `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a `SKILL.md` is loaded as a skill |
+| `skills.enabled` | Whether to scan, load, and inject skill metadata into prompts (default: `true`) |
+| `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a valid `SKILL.md` with required YAML front matter is loaded as a skill |
 | `scheduler.enabled` | Whether the scheduler subsystem is active (default: `true`) |
 | `logging.level` | Minimum log level: `Verbose`, `Debug`, `Information`, `Warning`, `Error` |
 
@@ -341,7 +346,7 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 
 ## 9. Skill File Specification
 
-Each skill lives in its own subdirectory under the skills folder and contains a single `SKILL.md` file. There are no binaries, scripts, or manifest files — skills are pure Markdown.
+Each skill lives in its own subdirectory under the skills folder and contains a single `SKILL.md` file. There are no binaries, scripts, or separate manifest files — skills are pure Markdown with YAML front matter.
 
 ```
 workspace/skills/
@@ -355,9 +360,14 @@ workspace/skills/
 
 ### 9.1 SKILL.md Structure
 
-A `SKILL.md` file should contain enough information for the LLM to carry out the capability without additional context. Recommended sections:
+A `SKILL.md` file must start with YAML front matter bracketed by `---` lines. The required front matter fields are `name` and `description`. The Markdown body should contain enough information for the LLM to carry out the capability after it reads the file through `read_file`.
 
 ```markdown
+---
+name: <Skill Name>
+description: One or two sentences describing what this skill does.
+---
+
 # <Skill Name>
 
 ## Purpose
@@ -371,13 +381,28 @@ Reference specific tools by name where relevant (e.g. `write_file`, `search_gmai
 An example of a user request that would invoke this skill, and how the agent should respond.
 ```
 
-There is no enforced schema — the format is a convention to make skills readable and effective. The agent loads the entire file content and includes it in the system prompt.
+The loader enforces the front matter metadata needed for discovery. The agent loads only the skill metadata into the system prompt:
+
+```markdown
+## Available Skills
+
+- name: <Skill Name>
+  description: One or two sentences describing what this skill does.
+  path: skills/<skill-name>/SKILL.md
+```
+
+The full Markdown body remains on disk. The LLM reads the selected `SKILL.md` file with `read_file` when a user request requires that skill.
 
 ### 9.2 create_new_skill
 
 The `create_new_skill` skill is seeded on first run and teaches the agent how to author new skills:
 
 ```markdown
+---
+name: create_new_skill
+description: Create or update Markdown skills in the workspace skills directory.
+---
+
 # Create New Skill
 
 ## Purpose
@@ -387,6 +412,7 @@ Create a new skill by writing a SKILL.md file into the skills directory.
 1. Ask the user what capability they want to add, if not already clear.
 2. Use `create_directory` to create `workspace/skills/<skill-name>/`.
 3. Use `write_file` to write `workspace/skills/<skill-name>/SKILL.md` with:
+   - YAML front matter containing `name` and `description`
    - A # heading with the skill name
    - A ## Purpose section
    - A ## Instructions section with enough detail for future use
