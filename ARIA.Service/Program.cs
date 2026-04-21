@@ -107,6 +107,7 @@ try
     builder.Services.AddSingleton<IBotCommand, ModelCommand>();
     // Skills (M6)
     builder.Services.AddSingleton<IBotCommand, ReloadSkillsCommand>();
+    builder.Services.AddSingleton<IBotCommand, OnboardingCommand>();
     // Scheduler (M7)
     builder.Services.AddSingleton<IBotCommand, JobsCommand>();
     builder.Services.AddSingleton<IBotCommand, CancelJobCommand>();

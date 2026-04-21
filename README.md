@@ -49,6 +49,7 @@ Configuration lives at `%LOCALAPPDATA%\ARIA\config.json`. The file is created on
 | `/sessions` | List recent sessions |
 | `/resume [id]` | Resume a previous session |
 | `/status` | Agent health, connected services, current model |
+| `/onboarding` | Run the onboarding interview to populate IDENTITY.md, SOUL.md, and USER.md |
 | `/connectgoogle` | Authorize Google access (opens browser) |
 | `/disconnectgoogle` | Revoke stored Google tokens |
 | `/jobs` | List active scheduled jobs |

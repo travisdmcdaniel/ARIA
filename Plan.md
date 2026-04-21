@@ -15,6 +15,7 @@
 | `/models` | List all Ollama models with sizes and active indicator | M3 |
 | `/sessions` | List recent conversation sessions | M4 |
 | `/resume <id>` | Resume a previous session | M4 |
+| `/onboarding` | Run the onboarding interview (skill-driven) to populate IDENTITY.md, SOUL.md, USER.md | M6 |
 | `/reloadskills` | Hot-reload all SKILL.md files | M6 |
 | `/jobs` | List active scheduled jobs | M7 |
 | `/canceljob <id>` | Cancel a scheduled job | M7 |
@@ -216,7 +217,20 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 
 - [ ] `Commands/ReloadSkillsCommand.cs` — calls `ISkillStore.ReloadAsync()` and reports how many skills are now loaded
 
-**M6 done when:** All `SKILL.md` files are loaded at startup; skill instructions appear in the system prompt; the agent can write a new skill by creating a subdirectory and `SKILL.md`; `/reloadskills` picks up newly written skills without a service restart.
+#### Step 6.5 — Seed the `onboarding` skill + implement `/onboarding` command
+
+The onboarding process is skill-driven: a `SKILL.md` instructs the LLM how to conduct the interview and write the context files. The `/onboarding` command injects a synthetic turn into the conversation loop, which the LLM resolves using the skill.
+
+- [ ] On first run (alongside `create_new_skill`), write `workspace/skills/onboarding/SKILL.md` — instructs the LLM to:
+  1. Greet the user and explain the setup process
+  2. Ask for the agent's in-world name; write it into `IDENTITY.md` via `write_context_file`
+  3. Ask 4–6 questions about the user (name, occupation, timezone, preferences, recurring tasks); write answers to `USER.md`
+  4. Optionally review or adjust `SOUL.md` communication style with the user
+  5. Confirm completion and trigger `/reloadskills` if context files were updated
+- [ ] Update `OnboardingCommand.cs` (stub registered in M2): inject `IAgentTurnHandler`; call `RunTurnAsync` with a synthetic prompt: `"Please begin the onboarding process as described in your available skills."`; send typing indicator while running
+- [ ] First-run auto-trigger: in `AgentWorker` (or `MarkdownContextFileStore`), detect absence of `IDENTITY.md` and log a hint to the user via Telegram to run `/onboarding`
+
+**M6 done when:** All `SKILL.md` files loaded at startup; skill instructions in system prompt; agent can write new skills; `/reloadskills` hot-reloads; `/onboarding` triggers the skill-driven interview and writes IDENTITY.md, SOUL.md, USER.md.
 
 ---
 
@@ -276,25 +290,24 @@ Skills are Markdown instruction files, not executables. Each skill lives at `wor
 
 ---
 
-### M9 — Onboarding & Context Files
+### M9 — Context File Cache + Hot-Reload
+
+The skill-driven onboarding interview (writing IDENTITY.md, SOUL.md, USER.md) is implemented in M6 Step 6.5. M9 focuses on making context file loading robust: in-memory caching, FileSystemWatcher invalidation, and token budget enforcement.
 
 #### Step 9.1 — Context file store (`ARIA.Memory/Context`)
 
-- [ ] Implement `MarkdownContextFileStore.cs` fully: reads file from `workspace/context/`; in-memory cache with `Dictionary<ContextFile, (string Content, DateTime LoadedAt)>`; `InvalidateCache(string fileName)`
-- [ ] `ContextFileWatcher.cs` — `FileSystemWatcher` on `*.md`; calls `InvalidateCache` on `Changed` event
+- [ ] Upgrade `MarkdownContextFileStore.cs`: add in-memory cache `Dictionary<ContextFile, (string Content, DateTime LoadedAt)>`; `ReadAsync` returns cached value and re-reads on cache miss; `InvalidateCache` clears the entry
+- [ ] `ContextFileWatcher.cs` — `FileSystemWatcher` on `workspace/context/*.md`; calls `IContextFileStore.InvalidateCache` on `Changed` and `Renamed` events; registered as a hosted service
 
-#### Step 9.2 — Onboarding flow (`ARIA.Agent/Onboarding`)
+#### Step 9.2 — Token budget enforcement
 
-- [ ] `OnboardingFlow.cs` — state machine; detects first run by checking absence of `IDENTITY.md` or a `setup_complete` DB flag
-- [ ] Steps: `ChooseAgentNameStep` → `ConfirmOllamaStep` → `GoogleCredentialsStep` → `ReviewIdentityStep` → `ReviewSoulStep` → `UserInterviewStep` → `CompleteStep`
-- [ ] `UserInterviewStep` — LLM-driven Q&A (5–7 questions); writes collected facts to `USER.md` via `write_context_file` tool
-- [ ] Seed `IDENTITY.md`, `SOUL.md`, `USER.md` with default content (with agent name substituted in `IDENTITY.md`)
+- [ ] In `SystemPromptBuilder.cs`: confirm estimated token count warning is surfaced to the user via Telegram (not only logged) when the combined context file + skill content exceeds `agent.contextTokenBudget`
 
-#### Step 9.3 — Token budget enforcement
+#### Step 9.3 — Seed default context file stubs
 
-- [ ] In `SystemPromptBuilder.cs`: estimate combined token count; append warning message if over threshold (default 4,000 tokens)
+- [ ] On first run, if `workspace/context/` is absent or empty, write minimal placeholder content to `IDENTITY.md`, `SOUL.md`, and `USER.md` so the system prompt has something to work with before the user runs `/onboarding`
 
-**M9 done when:** Fresh run triggers wizard; agent name written to `IDENTITY.md`; `USER.md` populated via interview; enabled context files are injected correctly; file edits hot-reloaded.
+**M9 done when:** Context file edits hot-reloaded without service restart; cache correctly invalidated; token overflow warning visible in Telegram; default stubs written on first run.
 
 ---
 

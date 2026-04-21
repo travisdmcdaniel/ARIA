@@ -103,6 +103,7 @@ The Telegram bot is the primary user-facing interface for ARIA in v1.
 | `/disconnectgoogle` | Revoke stored Google tokens |
 | `/jobs` | List active scheduled jobs |
 | `/canceljob [id]` | Cancel a scheduled job by ID |
+| `/onboarding` | Run the onboarding interview (skill-driven) to populate IDENTITY.md, SOUL.md, and USER.md |
 
 ### 5.2 LLM Adapter (Ollama / OpenAI-compatible)
 
@@ -142,6 +143,16 @@ ARIA shall ship with a `create_new_skill` skill — a `SKILL.md` that instructs 
 - When a user asks the agent to create a new skill, the agent follows the instructions in this file: it creates a new subdirectory under `workspace/skills/`, writes a `SKILL.md` describing the requested capability, and informs the user when done
 - No confirmation step or manifest validation is required — the agent writes Markdown, not executable code
 - The new skill is available immediately after the skill store reloads (automatic via file watcher)
+
+#### 5.4.2 Built-in: Onboarding Skill
+
+ARIA shall ship with an `onboarding` skill — a `SKILL.md` that instructs the LLM how to conduct the initial setup interview and populate the agent's context files.
+
+- The `onboarding/SKILL.md` shall be seeded into the skills directory on first run alongside `create_new_skill`
+- When the user issues `/onboarding`, or when the agent detects that `IDENTITY.md` is absent on first run, a synthetic turn is injected into the conversation loop with the prompt: "Please begin the onboarding process as described in your available skills"
+- The LLM follows the instructions in `onboarding/SKILL.md`: it greets the user, asks for the agent's in-world name, asks 4–6 questions about the user's name, occupation, timezone, preferences, and recurring tasks, and uses the `write_context_file` tool to populate `IDENTITY.md`, `SOUL.md`, and `USER.md`
+- The `/onboarding` command may be re-run at any time to update context files — it is not restricted to first run
+- On first run, if context files do not yet exist, the agent shall seed minimal placeholder stubs before the interview begins so the system prompt remains coherent
 
 ### 5.5 Conversation History & Session Management
 
@@ -481,10 +492,10 @@ Each authorized Telegram user has an isolated conversation history and session s
 | **M3: LLM Integration** | Ollama adapter wired into conversation loop with configurable context file injection and capability flags | Agent answers free-text questions using local model; enabled context files injected; multi-turn context retained per session when memory is enabled; image inputs passed through when model supports vision |
 | **M4: Conversation Persistence** | SQLite-backed history; session archive and resume via `/sessions` and `/resume` | History survives service restart; `/new` archives session; `/resume` restores it |
 | **M5: Workspace Tools** | File read/write/list/delete/move tools; sandbox enforcement | Agent can create, read, list, and delete files in workspace; path traversal attempts are rejected |
-| **M6: Skill Engine + Create Skill** | Manifest loader, tool dispatch, subprocess execution, Create Skill built-in | Sample skill loaded from disk; LLM invokes it; Create Skill generates and installs a new skill on request |
+| **M6: Skill Engine + Onboarding** | SKILL.md loader, Create Skill built-in, Onboarding skill + `/onboarding` command | Skills loaded from disk; LLM invokes them; `/onboarding` triggers skill-driven interview and writes IDENTITY.md, SOUL.md, USER.md |
 | **M7: Scheduler + Create Scheduled Job** | Cron/interval job creation, persistence, firing, and Telegram notification; Create Scheduled Job built-in | User can define a job via natural language; job is confirmed, persisted, and fires on schedule; `/jobs` lists it; `/canceljob` removes it |
 | **M8: Google OAuth** | OAuth flow, token storage, Gmail + Calendar skills | User authorizes via `/connectgoogle`; agent reads inbox and calendar events; token refresh works silently |
-| **M9: Onboarding & Context Files** | First-run wizard, agent name collection, IDENTITY/SOUL/USER seeding, USER.md update tooling | Fresh install walks through onboarding; agent name set and written to IDENTITY.md; USER.md populated via conversational interview; enabled context files are injected correctly; agent self-updates USER.md during conversation |
+| **M9: Context File Cache + Hot-Reload** | In-memory cache for context files, FileSystemWatcher invalidation, token budget enforcement, default file stubs | Context file edits picked up without restart; token overflow warning surfaced in Telegram; default stub files written on first run |
 | **M10: Installer** | WiX/Inno Setup installer + upgrade support + uninstaller | Clean install on fresh Windows machine; re-running newer installer upgrades in-place; uninstall removes all traces |
 | **M11: WPF Settings UI** | Full settings window with all configuration fields and OAuth status | All settings editable via UI; Google OAuth status shown; service restart prompted on change |
 | **M12: Polish & Hardening** | Error handling, reconnect logic, context file watcher, documentation, resource limits | Agent recovers from Ollama restart and Telegram disconnect; context file edits hot-reloaded; idle memory under 100MB |
