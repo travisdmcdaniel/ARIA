@@ -134,7 +134,7 @@
 
 - [ ] `Heartbeat/HeartbeatWorker.cs` — `BackgroundService`; reads `HeartbeatOptions` from config; if `Enabled` is false, exits immediately
 - [ ] On each tick: read `HEARTBEAT.md` from `workspace/context/`; if the file does not exist, skip silently and log a debug message
-- [ ] Inject the file content as a synthetic user turn into `ConversationLoop.RunTurnAsync`; send the LLM response to all authorized Telegram user IDs via `IMessageRouter`
+- [ ] Inject the file content as a synthetic user turn into `ConversationLoop.RunTurnAsync`; send a Telegram update to all authorized Telegram user IDs via `IMessageRouter` only when the LLM decides a user-facing update is warranted
 - [ ] Timer interval driven by `HeartbeatOptions.IntervalMinutes`; first tick fires at the first interval boundary (not immediately on startup)
 - [ ] Register as a hosted service in `ARIA.Service/Program.cs`
 

@@ -43,7 +43,7 @@ public sealed class ConversationLoop : IAgentTurnHandler
         IReadOnlyList<ImageAttachment>? images = null,
         CancellationToken ct = default)
     {
-        if (images is { Count: > 0 } && _llm.Capabilities?.SupportsVision != true)
+        if (images is { Count: > 0 } && !await SupportsVisionAsync(ct))
         {
             return "The current model does not support image input. Please switch to a vision-capable model or send a text message.";
         }
@@ -140,6 +140,23 @@ public sealed class ConversationLoop : IAgentTurnHandler
             ImageDataJson: null), ct);
 
         return finalText;
+    }
+
+    private async Task<bool> SupportsVisionAsync(CancellationToken ct)
+    {
+        if (_llm.Capabilities is { } capabilities)
+            return capabilities.SupportsVision;
+
+        try
+        {
+            capabilities = await _llm.DetectCapabilitiesAsync(ct);
+            return capabilities.SupportsVision;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not detect LLM capabilities while processing image input");
+            return false;
+        }
     }
 
     private async Task<ToolInvocationResult> ExecuteToolAsync(ToolCall toolCall, CancellationToken ct)

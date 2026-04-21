@@ -70,7 +70,7 @@ Test projects use xUnit + NSubstitute and mirror the source project they test.
 
 **Options pattern:** All configuration is read via strongly-typed `AriaOptions` (and its nested sub-option classes) in `ARIA.Core/Options/`. Non-infrastructure code must use `IOptions<AriaOptions>` — never inject `IConfiguration` directly.
 
-**Heartbeat:** When `heartbeat.enabled` is `true`, `HeartbeatWorker` fires every `heartbeat.intervalMinutes` minutes. It reads `workspace/context/HEARTBEAT.md`, passes it as a synthetic user turn into `ConversationLoop`, and sends the result to all authorized Telegram users. If `HEARTBEAT.md` does not exist the tick is silently skipped. The file is seeded during M9 onboarding. The heartbeat is distinct from the user-created scheduler jobs (M7) — it is a built-in, always-present background cycle controlled solely by config.
+**Heartbeat:** When `heartbeat.enabled` is `true`, `HeartbeatWorker` fires every `heartbeat.intervalMinutes` minutes. It reads `workspace/context/HEARTBEAT.md`, passes it as a synthetic user turn into `ConversationLoop`, and only sends Telegram updates to authorized users when the LLM decides a user-facing update is warranted. If `HEARTBEAT.md` does not exist the tick is silently skipped. The file is seeded during M9 onboarding. The heartbeat is distinct from the user-created scheduler jobs (M7) — it is a built-in, always-present background cycle controlled solely by config.
 
 **Logging:** Use Serilog structured logging with message templates (not string interpolation). Never log message content, file contents, API tokens, OAuth tokens, or user IDs in privacy-sensitive contexts.
 

@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ARIA.Agent\ARIA.Agent.csproj" />
     <ProjectReference Include="..\ARIA.Core\ARIA.Core.csproj" />
+    <ProjectReference Include="..\ARIA.LlmAdapter\ARIA.LlmAdapter.csproj" />
   </ItemGroup>
 
   <ItemGroup>

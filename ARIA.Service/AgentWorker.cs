@@ -12,13 +12,13 @@ public sealed class AgentWorker(
     ILlmAdapter llmAdapter,
     ILogger<AgentWorker> logger) : BackgroundService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("ARIA Agent Worker starting");
 
         try
         {
-            await migrator.MigrateAsync(stoppingToken);
+            await migrator.MigrateAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -28,7 +28,7 @@ public sealed class AgentWorker(
 
         try
         {
-            var caps = await llmAdapter.DetectCapabilitiesAsync(stoppingToken);
+            var caps = await llmAdapter.DetectCapabilitiesAsync(cancellationToken);
             logger.LogInformation(
                 "LLM capabilities detected — Vision: {Vision}, Tools: {Tools}, Streaming: {Streaming}",
                 caps.SupportsVision, caps.SupportsToolCalling, caps.SupportsStreaming);
@@ -40,6 +40,11 @@ public sealed class AgentWorker(
 
         logger.LogInformation("ARIA Agent Worker ready");
 
+        await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 }

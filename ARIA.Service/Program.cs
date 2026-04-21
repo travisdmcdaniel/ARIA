@@ -1,4 +1,5 @@
 using ARIA.Agent.Conversation;
+using ARIA.Agent.Heartbeat;
 using ARIA.Agent.Prompts;
 using ARIA.Core.Interfaces;
 using ARIA.Core.Options;
@@ -94,6 +95,8 @@ try
     builder.Services.AddSingleton<SystemPromptBuilder>();
     builder.Services.AddSingleton<ConversationLoop>();
     builder.Services.AddSingleton<IAgentTurnHandler>(sp => sp.GetRequiredService<ConversationLoop>());
+    builder.Services.AddHostedService<AgentWorker>();
+    builder.Services.AddHostedService<HeartbeatWorker>();
 
     // ── Telegram commands ─────────────────────────────────────────────────────
     // General
@@ -120,9 +123,6 @@ try
     builder.Services.AddSingleton<CommandRegistry>();
     builder.Services.AddSingleton<IMessageRouter, MessageRouter>();
     builder.Services.AddHostedService<TelegramWorker>();
-
-    // ── Worker ────────────────────────────────────────────────────────────────
-    builder.Services.AddHostedService<AgentWorker>();
 
     var host = builder.Build();
     host.Run();
