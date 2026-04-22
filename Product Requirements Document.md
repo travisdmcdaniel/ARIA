@@ -71,7 +71,7 @@ ARIA is composed of seven major subsystems:
 | LLM Adapter | Abstracts communication with the local Ollama instance; exposes capability flags (e.g. supportsVision, supportsToolCalling); designed for future provider swap-in | Ollama REST API (OpenAI-compatible) |
 | Skill & Tool Engine | Loads, validates, and executes skills; manages tool definitions passed to the LLM; hosts the Create Skill and Create Scheduled Job built-ins | File system (skill manifests), LLM function-calling |
 | Conversation & Memory Store | Persists conversation history per user/session in SQLite; manages session lifecycle; stores and serves context (IDENTITY, SOUL, USER) files | SQLite, file system |
-| Scheduler | Manages cron-style and interval-based jobs; triggers agent turns on schedule without user input; persists jobs in SQLite | Agent Core, in-process timer |
+| Scheduler | Loads user-editable job JSON files from the workspace; manages cron-style jobs; triggers agent turns on schedule without user input; mirrors metadata and execution history in SQLite | Agent Core, file system, SQLite |
 | Google Integration | Handles OAuth 2.0 flow, token storage, and API calls to Gmail, Calendar, etc. | Google OAuth 2.0, Google REST APIs |
 | Tray Host & Service Wrapper | Manages Windows service lifecycle, exposes tray icon, and hosts the WPF control UI | Windows Service API, system tray, WPF |
 
@@ -101,8 +101,8 @@ The Telegram bot is the primary user-facing interface for ARIA in v1.
 | `/status` | Report agent health, connected services, and current model |
 | `/connectgoogle` | Initiate Google OAuth flow |
 | `/disconnectgoogle` | Revoke stored Google tokens |
-| `/jobs` | List active scheduled jobs |
-| `/canceljob [id]` | Cancel a scheduled job by ID |
+| `/jobs` | List scheduled jobs loaded from workspace job files |
+| `/canceljob [id]` | Disable a scheduled job by ID or filename |
 | `/onboarding` | Run the onboarding interview (skill-driven) to populate IDENTITY.md, SOUL.md, and USER.md |
 
 ### 5.2 LLM Adapter (Ollama / OpenAI-compatible)
@@ -166,9 +166,11 @@ ARIA shall maintain persistent conversation history across service restarts usin
 - Each conversation record shall include at minimum: session ID, Telegram user ID, timestamp, role (user/assistant/tool), and message content
 - Sessions are the unit of contextual continuity. A session begins when the user starts a conversation (or issues `/new`) and persists until the user explicitly starts a new one
 - When building the LLM context window, ARIA shall load the most recent N turns from the active session (N = `agent.maxConversationTurns`, default 20) only when `personality.memory.enabled` is true, plus the enabled context files (see §5.6)
-- Previous sessions are archived and retrievable via `/sessions` and `/resume`; they are never deleted automatically
+- Previous sessions are archived and retrievable via `/sessions` and `/resume` while their conversation turns are still retained
 - Session data shall be associated with the Telegram user ID, so multiple authorized users maintain separate, isolated histories
-- A configurable retention policy shall allow older sessions to be excluded from the `/sessions` listing after a set number of days (they remain in the database but are not surfaced unless searched)
+- ARIA shall enforce a database retention limit of no more than 90 days for persisted operational data. `conversation_turns` rows older than the retention cutoff shall be deleted automatically.
+- After conversation turn pruning, any `sessions` row whose `session_id` has no remaining rows in `conversation_turns` shall also be deleted.
+- `/sessions` shall list only sessions that still exist after retention cleanup; archived sessions older than the retained turn window are not recoverable from SQLite.
 
 ### 5.6 Agent Identity & Context Files
 
@@ -197,22 +199,48 @@ ARIA's persona, behavioral traits, and user-specific knowledge are stored as Mar
 
 ARIA shall support scheduled and trigger-based tasks that allow the agent to initiate actions without a user message.
 
-- The scheduler shall support cron-style expressions and plain-English interval definitions (e.g. "every morning at 8am") for defining job timing
-- Scheduled jobs shall be stored persistently in the SQLite database so they survive service restarts
-- When a scheduled job fires, the Scheduler shall inject a synthetic user turn into the Agent Core with the job's defined prompt and route the response back to the appropriate Telegram user
+- The scheduler shall support cron-style recurring jobs in v1
+- Scheduled jobs shall be stored as one JSON file per job under `workspace/jobs/`
+- Job JSON files shall be the source of truth for what jobs exist, when they run, whether they are enabled, what model message they send, and which session target they use
+- SQLite may store a rebuildable mirror/index of loaded jobs and next-fire metadata, but ARIA shall rebuild scheduler state from job files on startup and after file changes
+- A job file shall use the job name in kebab case, for example `Daily Briefing` is stored as `workspace/jobs/daily-briefing.json`
+- Job files shall be editable by both the user and the agent using normal workspace file tools
+- ARIA shall watch `workspace/jobs/*.json` and hot-reload created, edited, renamed, or deleted jobs without requiring a service restart
+- A job shall be treated as disabled if `enabled` is `false`, if the filename starts with `_`, or if the filename starts with `disabled`
+- When a scheduled job fires, the Scheduler shall inject a synthetic user turn into the Agent Core with `payload.message` and route the response back to the appropriate Telegram user
+- `scheduler.runMissedJobsAsap` shall control catch-up behavior for jobs missed while ARIA was disabled from the tray icon or while the service was not running
+- When `scheduler.runMissedJobsAsap` is true, each missed job shall be queued for one catch-up run at the next available opportunity, even if multiple fire times were missed for that same job
+- When multiple different jobs were missed, ARIA shall run their catch-up executions sequentially; it shall not send multiple scheduled turns into the agent loop concurrently
+- When `scheduler.runMissedJobsAsap` is false, missed fire times shall be skipped and the scheduler shall wait for the next future cron occurrence
 - Jobs may be created by any authorized Telegram user; job creation is handled by the built-in Create Scheduled Job skill (see §5.7.1)
-- Jobs shall be listable and cancellable via the `/jobs` and `/canceljob` bot commands
-- A job execution log shall be maintained in SQLite, recording start time, completion time, success/failure, and any output
+- Jobs shall be listable and disabled via the `/jobs` and `/canceljob` bot commands
+- A job execution log shall be maintained in SQLite, recording start time, completion time, success/failure, and any output; rows older than the retention cutoff shall be deleted automatically
+- `scheduled_jobs` shall not be used as a historical archive. It shall contain only current or recently refreshed mirror rows from `workspace/jobs/*.json`; stale mirror rows older than the retention cutoff shall be pruned. Retention cleanup shall not delete or disable job JSON files.
 - If a job fails, the agent shall notify the originating Telegram user with a brief error summary
+
+Each job file shall use this JSON shape:
+
+```json
+{
+  "name": "Daily Briefing",
+  "schedule": { "kind": "cron", "expr": "30 7 * * *", "tz": "America/New_York" },
+  "payload": { "kind": "agentTurn", "message": "Run the daily briefing skill, and send the results to the user." },
+  "sessionTarget": "isolated",
+  "enabled": true
+}
+```
+
+`schedule.kind` is `cron` for v1 recurring tasks. `schedule.expr` is a cron expression. `schedule.tz` is an IANA time zone. `payload.kind` is usually `agentTurn` in v1, with room for additional payload kinds in future versions. `payload.message` is the message sent to the model with the normal system prompt. `sessionTarget` is either `isolated` for jobs outside the main conversation flow or `main` for jobs that run in whichever session is active when the job fires.
 
 #### 5.7.1 Built-in: Create Scheduled Job
 
-ARIA shall ship with a built-in "Create Scheduled Job" skill that parses natural-language job descriptions from the user into persisted, executable scheduled jobs.
+ARIA shall ship with a built-in "Create Scheduled Job" skill that parses natural-language job descriptions from the user into executable job JSON files.
 
 - The skill shall accept a natural-language job description (e.g. "Every weekday at 9am, summarize my unread email and send it to me")
-- The skill shall use the LLM to extract the schedule (converted to a cron expression) and the task prompt from the description
-- The extracted schedule and prompt shall be presented to the user for confirmation before the job is persisted
-- On confirmation, the job shall be written to the SQLite jobs table and registered with the Scheduler immediately (no restart required)
+- The skill shall use the LLM to extract the job name, schedule, IANA time zone, payload message, session target, and enabled state from the description
+- The extracted schedule and prompt shall be presented to the user for confirmation before the job file is written
+- On confirmation, the job shall be written to `workspace/jobs/<job-name-kebab-case>.json` and registered with the Scheduler immediately (no restart required)
+- If a job file with the same filename already exists, the skill shall ask whether to overwrite it or choose a different job name
 - The skill shall handle ambiguous timing descriptions by asking the user a clarifying question before proceeding
 
 ### 5.8 Google Integration & OAuth
@@ -273,7 +301,7 @@ ARIA bundles Google OAuth 2.0 support so the user can authorize the agent to act
 |---|---|
 | **Performance** | Response latency is bounded by local model inference speed. ARIA itself (excluding LLM) should add no more than 200ms overhead per turn. |
 | **Security** | No credentials or tokens stored in plain text. Workspace sandbox strictly enforced. Telegram bot accepts messages only from whitelisted user IDs. |
-| **Reliability** | Service auto-restarts on crash with backoff. Telegram reconnects automatically. Scheduled jobs are durable across restarts. Errors surfaced to user via Telegram when actionable. |
+| **Reliability** | Service auto-restarts on crash with backoff. Telegram reconnects automatically. Scheduled jobs are durable across restarts because job files are reloaded from the workspace. Errors surfaced to user via Telegram when actionable. |
 | **Privacy** | All inference is local; no user data is transmitted to third-party AI services in v1. Google API calls are user-authorized and scoped to minimum required permissions. Context files remain on-device. |
 | **Extensibility** | LLM adapter, skill system, and Google scopes all designed for extension without core rewrites. |
 | **Installability** | Installer must work on Windows 10 (20H2+) and Windows 11 without requiring admin rights beyond service registration. |
@@ -308,7 +336,7 @@ C# with .NET 8 is the strongest fit for this project:
 | Google OAuth & APIs | `Google.Apis.Auth` + `Google.Apis.Gmail.v1` + `Google.Apis.Calendar.v3` |
 | Credential Storage | `Windows.Security.Credentials` (Credential Locker) or `System.Security.Cryptography.ProtectedData` (DPAPI) |
 | SQLite | `Microsoft.Data.Sqlite` + Dapper |
-| Scheduler | Quartz.NET (full-featured cron) or NCrontab with a hosted timer |
+| Scheduler | Quartz.NET (full-featured cron) or NCrontab with a hosted timer; job definitions loaded from `workspace/jobs/*.json` |
 | Installer | WiX Toolset v4 (MSI) or Inno Setup (.exe) |
 | Logging | Serilog with rolling file sink |
 | Configuration | `Microsoft.Extensions.Configuration` with JSON file provider |
@@ -325,6 +353,7 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `workspace.rootPath` | Absolute path to the agent's sandboxed workspace folder |
 | `workspace.contextDirectory` | Path to context files directory (default: `{workspace}/context`) |
 | `workspace.databasePath` | Path to SQLite database file (default: `{workspace}/aria.db`) |
+| `workspace.jobsDirectory` | Path to scheduled job JSON files (default: `{workspace}/jobs`) |
 | `ollama.baseUrl` | Base URL of the Ollama instance (default: `http://localhost:11434`) |
 | `ollama.model` | Model name to use for inference (e.g. `llama3`, `mistral`) |
 | `telegram.botToken` | Telegram bot token — stored in Credential Store, placeholder here |
@@ -333,6 +362,7 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `google.clientSecret` | Google OAuth client secret — stored in Credential Store |
 | `agent.maxConversationTurns` | Maximum number of turns to load from the active session into context (default: 20) |
 | `agent.contextFileWatchEnabled` | Whether to watch context files for changes and hot-reload them (default: `true`) |
+| `retention.databaseDays` | Maximum age for SQLite operational rows in `conversation_turns`, `job_execution_log`, and stale `scheduled_jobs` mirror rows (default: `90`; maximum: `90`) |
 | `personality.identity.enabled` | Whether to include `IDENTITY.md` in the system prompt (default: `true`) |
 | `personality.soul.enabled` | Whether to include `SOUL.md` in the system prompt (default: `true`) |
 | `personality.user.enabled` | Whether to include `USER.md` in the system prompt (default: `true`) |
@@ -340,6 +370,7 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `skills.enabled` | Whether to scan, load, and inject skill metadata into prompts (default: `true`) |
 | `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a valid `SKILL.md` with required YAML front matter is loaded as a skill |
 | `scheduler.enabled` | Whether the scheduler subsystem is active (default: `true`) |
+| `scheduler.runMissedJobsAsap` | Whether jobs missed while ARIA was disabled or offline should run once at the next available opportunity (default: `true`) |
 | `logging.level` | Minimum log level: `Verbose`, `Debug`, `Information`, `Warning`, `Error` |
 
 ---
@@ -516,10 +547,10 @@ Each authorized Telegram user has an isolated conversation history and session s
 | **M1: Foundation** | Windows service skeleton + tray icon + WPF settings stub + config system + SQLite init | Service installs, starts, shows tray icon; reads config; logs to file; SQLite database created on first run |
 | **M2: Telegram Loop** | Bot connects, receives messages, sends text replies; `/status` and `/new` commands work | Authorized user can send a message and get a static echo reply; `/new` starts a fresh session |
 | **M3: LLM Integration** | Ollama adapter wired into conversation loop with configurable context file injection and capability flags | Agent answers free-text questions using local model; enabled context files injected; multi-turn context retained per session when memory is enabled; image inputs passed through when model supports vision |
-| **M4: Conversation Persistence** | SQLite-backed history; session archive and resume via `/sessions` and `/resume` | History survives service restart; `/new` archives session; `/resume` restores it |
+| **M4: Conversation Persistence** | SQLite-backed history; session archive and resume via `/sessions` and `/resume`; database retention cleanup | History survives service restart; `/new` archives session; `/resume` restores retained sessions; SQLite operational rows are capped at 90 days; sessions with no retained turns are deleted |
 | **M5: Workspace Tools** | File read/write/list/delete/move tools; sandbox enforcement | Agent can create, read, list, and delete files in workspace; path traversal attempts are rejected |
 | **M6: Skill Engine + Onboarding** | SKILL.md loader, Create Skill built-in, Onboarding skill + `/onboarding` command | Skills loaded from disk; LLM invokes them; `/onboarding` triggers skill-driven interview and writes IDENTITY.md, SOUL.md, USER.md |
-| **M7: Scheduler + Create Scheduled Job** | Cron/interval job creation, persistence, firing, and Telegram notification; Create Scheduled Job built-in | User can define a job via natural language; job is confirmed, persisted, and fires on schedule; `/jobs` lists it; `/canceljob` removes it |
+| **M7: Scheduler + Create Scheduled Job** | Workspace job JSON loading, cron job creation, missed-job catch-up, firing, Telegram notification, and Create Scheduled Job built-in | User can define a job via natural language; job is confirmed, written to `workspace/jobs/<job-name>.json`, hot-reloaded, and fires on schedule; `/jobs` lists job files; `/canceljob` disables the job file; missed jobs run according to `scheduler.runMissedJobsAsap` with sequential catch-up execution |
 | **M8: Google OAuth** | OAuth flow, token storage, Gmail + Calendar skills | User authorizes via `/connectgoogle`; agent reads inbox and calendar events; token refresh works silently |
 | **M9: Context File Cache + Hot-Reload** | In-memory cache for context files, FileSystemWatcher invalidation, token budget enforcement, default file stubs | Context file edits picked up without restart; token overflow warning surfaced in Telegram; default stub files written on first run |
 | **M10: Installer** | WiX/Inno Setup installer + upgrade support + uninstaller | Clean install on fresh Windows machine; re-running newer installer upgrades in-place; uninstall removes all traces |

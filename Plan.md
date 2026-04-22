@@ -17,8 +17,8 @@
 | `/resume <id>` | Resume a previous session | M4 |
 | `/onboarding` | Run the onboarding interview (skill-driven) to populate IDENTITY.md, SOUL.md, USER.md | M6 |
 | `/reloadskills` | Hot-reload all SKILL.md files | M6 |
-| `/jobs` | List active scheduled jobs | M7 |
-| `/canceljob <id>` | Cancel a scheduled job | M7 |
+| `/jobs` | List active scheduled jobs from workspace job files | M7 |
+| `/canceljob <id>` | Disable a scheduled job file | M7 |
 | `/google_setup` | Upload client_secret.json to configure OAuth credentials | M8 |
 | `/google_connect` | Start OAuth flow and receive an authorization link | M8 |
 | `/google_complete <code>` | Complete OAuth manually (fallback for remote use) | M8 |
@@ -34,10 +34,10 @@
 
 #### Step 1.1 — Core abstractions (`ARIA.Core`)
 
-- [ ] `Options/AriaOptions.cs` — top-level config POCO with nested `WorkspaceOptions`, `OllamaOptions`, `TelegramOptions`, `GoogleOptions`, `AgentOptions`, `SkillsOptions`, `SchedulerOptions`, `HeartbeatOptions`, `PersonalityOptions`, `LoggingOptions`
+- [ ] `Options/AriaOptions.cs` — top-level config POCO with nested `WorkspaceOptions`, `OllamaOptions`, `TelegramOptions`, `GoogleOptions`, `AgentOptions`, `SkillsOptions`, `SchedulerOptions`, `RetentionOptions`, `HeartbeatOptions`, `PersonalityOptions`, `LoggingOptions`
 - [ ] `Models/Session.cs` — `record Session(string SessionId, long TelegramUserId, DateTime StartedAt, DateTime LastActivityAt, bool IsActive)`
 - [ ] `Models/ConversationTurn.cs` — `record ConversationTurn(long TurnId, string SessionId, long TelegramUserId, DateTime Timestamp, string Role, string? TextContent, string? ToolCallsJson, string? ToolResultJson, string? ImageDataJson)`
-- [ ] `Models/ScheduledJob.cs` — `record ScheduledJob(...)` + `record JobExecutionLog(...)`
+- [ ] `Models/ScheduledJob.cs` — `record ScheduledJob(...)` representing a workspace job file + `record JobExecutionLog(...)`
 - [ ] `Models/LlmModels.cs` — `record LlmCapabilities`, `record ChatMessage`, `record ToolCall`, `record ToolResult`, `record LlmResponse`, `record ImageAttachment`
 - [ ] `Models/ToolModels.cs` — `record ToolDefinition`, `record ToolInvocation`, `record ToolInvocationResult`
 - [ ] `Models/SkillModels.cs` — `record SkillEntry(string Name, string Description, string Directory, string Path)` — represents loaded metadata from a `SKILL.md`
@@ -58,7 +58,7 @@
 
 #### Step 1.3 — SQLite schema + migrations (`ARIA.Memory`)
 
-- [ ] `Migrations/DatabaseMigrator.cs` — creates `sessions`, `conversation_turns`, `scheduled_jobs`, `job_execution_log`, `schema_version` tables; enables WAL mode (`PRAGMA journal_mode=WAL`)
+- [ ] `Migrations/DatabaseMigrator.cs` — creates `sessions`, `conversation_turns`, `scheduled_jobs`, `job_execution_log`, `schema_version` tables; enables WAL mode (`PRAGMA journal_mode=WAL`). The `scheduled_jobs` table is a runtime mirror/index of files in `workspace/jobs/`; job JSON files remain the source of truth. Include timestamp columns needed for pruning runtime mirror rows, such as `loaded_at` or `updated_at`.
 - [ ] `Sqlite/SqliteConversationStore.cs` — stub implementing `IConversationStore` (all methods `throw new NotImplementedException()` for now; filled in during M4)
 - [ ] `Context/MarkdownContextFileStore.cs` — stub implementing `IContextFileStore`
 
@@ -162,7 +162,17 @@
 - [ ] `Commands/SessionsCommand.cs` — formats session list (shortened ID, start date, last activity, current flag)
 - [ ] `Commands/ResumeCommand.cs` — archives current, sets target session active
 
-**M4 done when:** History survives restart; `/new`, `/sessions`, `/resume` work; multiple users have isolated histories.
+#### Step 4.3 — Database retention cleanup
+
+- [ ] Add a retention setting with a maximum of 90 days for persisted operational data; the default should be 90 days
+- [ ] `DatabaseRetentionService` or equivalent hosted cleanup task — runs at startup and then daily
+- [ ] Delete `conversation_turns` rows with `timestamp` older than the retention cutoff
+- [ ] After pruning turns, delete any `sessions` row whose `session_id` has no remaining rows in `conversation_turns`
+- [ ] Delete `job_execution_log` rows with `started_at` older than the retention cutoff
+- [ ] For `scheduled_jobs`, do not treat the table as a historical archive; rebuild or refresh it from `workspace/jobs/*.json` and prune mirror rows not seen in the latest file load or with `loaded_at`/`updated_at` older than the retention cutoff
+- [ ] Run retention cleanup inside a transaction and delete child rows before parent/mirror rows so foreign-key enforcement cannot block cleanup
+
+**M4 done when:** History survives restart; `/new`, `/sessions`, `/resume` work; multiple users have isolated histories; database cleanup prevents `conversation_turns`, `job_execution_log`, and stale `scheduled_jobs` mirror rows from retaining more than 90 days of data; sessions with no remaining turns are deleted.
 
 ---
 
@@ -236,27 +246,48 @@ The onboarding process is skill-driven: a `SKILL.md` instructs the LLM how to co
 
 ### M7 — Scheduler + Create Scheduled Job
 
+Scheduled jobs are user-editable JSON files stored under `workspace/jobs/`. These files are the source of truth for what jobs exist, when they run, their enabled state, and the prompt sent to the model. SQLite may cache job metadata for listing, next-fire calculations, and execution history, but it must be rebuilt from the job files when files change or the service restarts.
+
+Each job is stored as one `.json` file whose filename is the job name in kebab case, for example `workspace/jobs/daily-briefing.json`:
+
+```json
+{
+  "name": "Daily Briefing",
+  "schedule": { "kind": "cron", "expr": "30 7 * * *", "tz": "America/New_York" },
+  "payload": { "kind": "agentTurn", "message": "Run the daily briefing skill, and send the results to the user." },
+  "sessionTarget": "isolated",
+  "enabled": true
+}
+```
+
+For M7, `schedule.kind` is always `cron`; `schedule.expr` is a cron expression; `schedule.tz` is an IANA time zone. `payload.kind` is usually `agentTurn`; `payload.message` is the synthetic user message sent to the model with the normal system prompt. `sessionTarget` is either `isolated` for jobs outside the main conversation flow or `main` for jobs that run in the currently active session. A job is disabled when `enabled` is `false`, when its filename starts with `_`, or when its filename starts with `disabled`.
+
+The scheduler has a `scheduler.runMissedJobsAsap` option. When true, a job missed because ARIA was disabled from the tray icon or because the service was not running should run at the next available opportunity. If multiple runs of the same job were missed, enqueue only one catch-up run for that job. If multiple different jobs were missed, enqueue them and run them sequentially, never concurrently through the agent loop. When false, missed fire times are recorded or skipped, and the scheduler waits for the next future cron occurrence.
+
 #### Step 7.1 — Scheduler service (`ARIA.Scheduler`)
 
-- [ ] `Store/SqliteJobStore.cs` — CRUD for `scheduled_jobs` and `job_execution_log` tables
-- [ ] `Jobs/AgentTaskJob.cs` — Quartz `IJob`; calls `ConversationLoop.RunTurnAsync` with the job's prompt; sends response via Telegram; logs to `job_execution_log`; notifies user on failure
-- [ ] `QuartzSchedulerService.cs` — implements `ISchedulerService`; wraps Quartz `IScheduler`; `ScheduleJobAsync`, `CancelJobAsync`, `LoadPersistedJobsAsync`
+- [ ] `Store/FileSystemJobStore.cs` — scans `workspace/jobs/*.json`; parses and validates job files; computes disabled state from `enabled`, `_` prefix, or `disabled` prefix; exposes loaded jobs to the scheduler
+- [ ] `Store/SqliteJobStore.cs` — maintains a rebuildable runtime mirror of loaded jobs in `scheduled_jobs`, including last fire/missed fire metadata, and appends execution records to `job_execution_log`; never treats SQLite as the authoritative job definition store
+- [ ] `Jobs/AgentTaskJob.cs` — Quartz `IJob`; calls `ConversationLoop.RunTurnAsync` with `payload.message`; honors `sessionTarget`; sends response via Telegram; logs to `job_execution_log`; notifies user on failure
+- [ ] `QuartzSchedulerService.cs` — implements `ISchedulerService`; wraps Quartz `IScheduler`; `ReloadJobsAsync`, `ScheduleJobAsync`, `DisableJobAsync`, `LoadJobFilesAsync`; detects missed fire times during startup, reload, and unpause
+- [ ] `JobFileWatcher.cs` — watches `workspace/jobs/*.json`; debounces changes; reloads changed, created, renamed, and deleted job files without service restart
+- [ ] `MissedJobQueue` or equivalent — when `scheduler.runMissedJobsAsap` is true, queues at most one catch-up execution per missed job and drains missed jobs sequentially so only one scheduled agent turn runs at a time
 
 #### Step 7.2 — Wire Quartz into service host
 
-- [ ] Register `AddQuartz` + `AddQuartzHostedService` in `Program.cs`; call `LoadPersistedJobsAsync` at startup
+- [ ] Register `AddQuartz` + `AddQuartzHostedService` in `Program.cs`; create `workspace/jobs/` if missing; call `LoadJobFilesAsync` at startup; evaluate missed jobs according to `scheduler.runMissedJobsAsap`; start the job file watcher
 
 #### Step 7.3 — Scheduler commands + Create Scheduled Job built-in
 
-- [ ] `Commands/JobsCommand.cs` — lists active jobs with cron, next fire time
-- [ ] `Commands/CancelJobCommand.cs` — deactivates in DB, removes from Quartz
+- [ ] `Commands/JobsCommand.cs` — lists enabled jobs loaded from `workspace/jobs/` with filename, cron, time zone, `sessionTarget`, and next fire time; clearly marks jobs disabled by file prefix or `enabled: false`
+- [ ] `Commands/CancelJobCommand.cs` — disables the job by editing its JSON `enabled` property to `false` or, if the file cannot be parsed safely, by renaming it with a leading `_`; removes it from Quartz
 - [ ] `BuiltIn/CreateScheduledJob/CreateScheduledJobExecutor.cs`:
-  1. LLM extracts `{"cron": "...", "prompt": "..."}` from natural-language description
-  2. Validate cron via `NCrontab.CronSchedule.TryParse`; ask clarifying question if ambiguous
+  1. LLM extracts a job draft matching the job file schema: `name`, `schedule.kind`, `schedule.expr`, `schedule.tz`, `payload.kind`, `payload.message`, `sessionTarget`, `enabled`
+  2. Validate cron via `NCrontab.CronSchedule.TryParse`; validate `schedule.tz` as an IANA time zone; ask clarifying questions if ambiguous
   3. Present to user for confirmation
-  4. On confirm: persist to SQLite, register with Quartz immediately
+  4. On confirm: write `workspace/jobs/<job-name-kebab-case>.json`, reload the scheduler, and update the SQLite mirror immediately
 
-**M7 done when:** Jobs survive restart; fire on schedule; results sent via Telegram; `/jobs` and `/canceljob` work; natural-language creation works.
+**M7 done when:** Job files in `workspace/jobs/` survive restart, are treated as the source of truth, hot-reload after user or agent edits, fire on schedule, and send results via Telegram; `/jobs` lists them; `/canceljob` disables the corresponding file; natural-language creation writes valid job JSON; missed jobs obey `scheduler.runMissedJobsAsap`, with one catch-up run per missed job and sequential execution across different missed jobs.
 
 ---
 
@@ -346,7 +377,7 @@ The skill-driven onboarding interview (writing IDENTITY.md, SOUL.md, USER.md) is
 - [ ] `ARIA.TrayHost/Ipc/StatusPipeClient.cs` — polls every 10 seconds; updates `NotifyIcon.Icon` (green/amber/red) and tooltip
 - [ ] **Replace file-based pause with pipe command:** Add a `PauseCommand` / `ResumeCommand` message type to the pipe protocol; `TrayApplication.TogglePause()` sends the command over the pipe instead of writing `PauseFlag`; `MessageRouter` reads the paused state from an in-memory flag set by the pipe server rather than checking `PauseFlag.IsSet`. Delete `ARIA.Core/Constants/PauseFlag.cs` once the pipe is live.
 
-**M11 done when:** All settings editable; Google OAuth connect/disconnect works from UI; tray icon color reflects live status; scheduled jobs listed and cancellable; Disable/Enable routed through pipe rather than flag file.
+**M11 done when:** All settings editable; Google OAuth connect/disconnect works from UI; tray icon color reflects live status; scheduled jobs are listed and can be disabled through their workspace job files; Disable/Enable routed through pipe rather than flag file.
 
 ---
 

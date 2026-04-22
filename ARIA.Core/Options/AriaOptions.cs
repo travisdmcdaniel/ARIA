@@ -98,6 +98,16 @@ public sealed class SkillsOptions
 public sealed class SchedulerOptions
 {
     public bool Enabled { get; set; } = true;
+    public string Directory { get; set; } = "jobs";
+    public bool RunMissedJobsAsap { get; set; } = true;
+
+    public string GetResolvedDirectory(string workspaceRoot)
+    {
+        var expanded = Environment.ExpandEnvironmentVariables(Directory);
+        return Path.IsPathRooted(expanded)
+            ? expanded
+            : Path.Combine(workspaceRoot, expanded);
+    }
 }
 
 public sealed class HeartbeatOptions

@@ -30,7 +30,9 @@
     "executionTimeoutSeconds": 300
   },
   "scheduler": {
-    "enabled": true
+    "enabled": true,
+    "directory": "jobs",
+    "runMissedJobsAsap": true
   },
   "heartbeat": {
     "enabled": true,
