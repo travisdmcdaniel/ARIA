@@ -49,6 +49,23 @@ public sealed class ContextFileToolsExecutorTests
         result.ResultJson.Should().Contain("escapes");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_DoesNotNestContextDirectory_WhenPathIncludesContextPrefix()
+    {
+        var root = CreateTempRoot();
+        var executor = CreateExecutor(root);
+
+        var result = await InvokeAsync(executor, ContextFileToolDefinitions.WriteContextFile, new
+        {
+            path = "context/IDENTITY.md",
+            content = "# Identity"
+        });
+
+        result.IsError.Should().BeFalse();
+        File.Exists(Path.Combine(root, "context", "IDENTITY.md")).Should().BeTrue();
+        File.Exists(Path.Combine(root, "context", "context", "IDENTITY.md")).Should().BeFalse();
+    }
+
     private static Task<ToolInvocationResult> InvokeAsync(
         ContextFileToolsExecutor executor,
         string toolName,

@@ -1,5 +1,8 @@
 using ARIA.Core.Interfaces;
+using ARIA.Core.Options;
 using ARIA.Memory.Migrations;
+using ARIA.Skills.Loader;
+using Microsoft.Extensions.Options;
 
 namespace ARIA.Service;
 
@@ -10,8 +13,13 @@ namespace ARIA.Service;
 public sealed class AgentWorker(
     DatabaseMigrator migrator,
     ILlmAdapter llmAdapter,
+    SkillSeeder skillSeeder,
+    ISkillStore skillStore,
+    IOptions<AriaOptions> options,
     ILogger<AgentWorker> logger) : BackgroundService
 {
+    private readonly AriaOptions _options = options.Value;
+
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("ARIA Agent Worker starting");
@@ -19,10 +27,13 @@ public sealed class AgentWorker(
         try
         {
             await migrator.MigrateAsync(cancellationToken);
+            await skillSeeder.SeedAsync(cancellationToken);
+            await skillStore.ReloadAsync(cancellationToken);
+            LogOnboardingHintIfNeeded();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogCritical(ex, "Database migration failed — service cannot start");
+            logger.LogCritical(ex, "Startup initialization failed — service cannot start");
             throw;
         }
 
@@ -46,5 +57,15 @@ public sealed class AgentWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+
+    private void LogOnboardingHintIfNeeded()
+    {
+        var identityPath = Path.Combine(
+            _options.Workspace.GetResolvedContextDirectory(),
+            "IDENTITY.md");
+
+        if (!File.Exists(identityPath))
+            logger.LogInformation("IDENTITY.md is not present. Send /onboarding in Telegram to run first-time setup.");
     }
 }

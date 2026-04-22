@@ -45,10 +45,15 @@ public sealed class SystemPromptBuilder
         {
             sb.AppendLine("## Available Skills");
             sb.AppendLine();
+            sb.AppendLine("The following skills are available. Select relevant skills by name and description.");
+            sb.AppendLine("When a skill is relevant, use read_file to read its SKILL.md path before applying it.");
+            sb.AppendLine("If the recent conversation indicates an ongoing skill workflow, read that skill's SKILL.md again and continue the workflow.");
+            sb.AppendLine();
             foreach (var skill in skills)
             {
-                sb.AppendLine($"### {skill.Name}");
-                sb.AppendLine(skill.Content);
+                sb.AppendLine($"- name: {skill.Name}");
+                sb.AppendLine($"  description: {skill.Description}");
+                sb.AppendLine($"  path: {skill.Path}");
                 sb.AppendLine();
             }
         }

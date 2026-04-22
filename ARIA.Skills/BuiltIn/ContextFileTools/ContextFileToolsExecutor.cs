@@ -78,11 +78,32 @@ public sealed class ContextFileToolsExecutor(
             contextRelativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
             throw new WorkspaceSandboxException("Context directory must be inside the workspace root.");
 
-        var fullPath = sandbox.ResolveSafe(Path.Combine(contextRelativePath, relativePath));
+        var fullPath = sandbox.ResolveSafe(Path.Combine(
+            contextRelativePath,
+            NormalizeContextRelativePath(relativePath, contextRelativePath)));
         if (!IsWithinContextDirectory(fullPath))
             throw new WorkspaceSandboxException("Path escapes the configured context directory.");
 
         return fullPath;
+    }
+
+    private static string NormalizeContextRelativePath(string relativePath, string contextRelativePath)
+    {
+        var normalized = relativePath
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimStart(Path.DirectorySeparatorChar);
+
+        var contextPrefix = contextRelativePath
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar);
+
+        if (normalized.Equals(contextPrefix, StringComparison.OrdinalIgnoreCase))
+            return ".";
+
+        if (normalized.StartsWith(contextPrefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return normalized[(contextPrefix.Length + 1)..];
+
+        return relativePath;
     }
 
     private bool IsWithinContextDirectory(string fullPath) =>

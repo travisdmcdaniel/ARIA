@@ -1,7 +1,8 @@
 namespace ARIA.Core.Models;
 
-/// <summary>Represents a loaded SKILL.md file from the skills directory.</summary>
+/// <summary>Represents metadata loaded from a SKILL.md file.</summary>
 public sealed record SkillEntry(
     string Name,
+    string Description,
     string Directory,
-    string Content);
+    string Path);

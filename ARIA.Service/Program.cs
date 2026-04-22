@@ -95,8 +95,9 @@ try
     builder.Services.AddSingleton<FileToolsExecutor>();
     builder.Services.AddSingleton<ContextFileToolsExecutor>();
     builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
-    // No-op skill store until M6.
-    builder.Services.AddSingleton<ISkillStore, EmptySkillStore>();
+    builder.Services.AddSingleton<SkillLoader>();
+    builder.Services.AddSingleton<SkillSeeder>();
+    builder.Services.AddSingleton<ISkillStore, SkillStore>();
 
     // ── Agent ─────────────────────────────────────────────────────────────────
     builder.Services.AddSingleton<SystemPromptBuilder>();
