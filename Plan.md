@@ -246,7 +246,7 @@ The onboarding process is skill-driven: a `SKILL.md` instructs the LLM how to co
 
 ### M7 — Scheduler + Create Scheduled Job
 
-Scheduled jobs are user-editable JSON files stored under `workspace/jobs/`. These files are the source of truth for what jobs exist, when they run, their enabled state, and the prompt sent to the model. SQLite may cache job metadata for listing, next-fire calculations, and execution history, but it must be rebuilt from the job files when files change or the service restarts.
+Scheduled jobs are user-editable JSON files stored under `scheduler.directory`, which defaults to `workspace/jobs/`. These files are the source of truth for what jobs exist, when they run, their enabled state, and the prompt sent to the model. SQLite may cache job metadata for listing, next-fire calculations, and execution history, but it must be rebuilt from the job files when files change or the service restarts.
 
 Each job is stored as one `.json` file whose filename is the job name in kebab case, for example `workspace/jobs/daily-briefing.json`:
 
@@ -268,19 +268,19 @@ The scheduler has a `scheduler.runMissedJobsAsap` option. When true, a job misse
 
 - [ ] `Store/FileSystemJobStore.cs` — scans `workspace/jobs/*.json`; parses and validates job files; computes disabled state from `enabled`, `_` prefix, or `disabled` prefix; exposes loaded jobs to the scheduler
 - [ ] `Store/SqliteJobStore.cs` — maintains a rebuildable runtime mirror of loaded jobs in `scheduled_jobs`, including last fire/missed fire metadata, and appends execution records to `job_execution_log`; never treats SQLite as the authoritative job definition store
-- [ ] `Jobs/AgentTaskJob.cs` — Quartz `IJob`; calls `ConversationLoop.RunTurnAsync` with `payload.message`; honors `sessionTarget`; sends response via Telegram; logs to `job_execution_log`; notifies user on failure
-- [ ] `QuartzSchedulerService.cs` — implements `ISchedulerService`; wraps Quartz `IScheduler`; `ReloadJobsAsync`, `ScheduleJobAsync`, `DisableJobAsync`, `LoadJobFilesAsync`; detects missed fire times during startup, reload, and unpause
+- [ ] `SchedulerService.cs` — hosted service implementing `ISchedulerService`; uses `NCrontab` to compute next fire times; calls `ConversationLoop.RunTurnAsync` with `payload.message`; honors `sessionTarget`; sends response via Telegram; logs to `job_execution_log`; notifies user on failure
+- [ ] Scheduler reload operations — `ReloadJobsAsync`, `ScheduleJobAsync`, `DisableJobAsync`, `LoadJobFilesAsync`; detect missed fire times during startup, reload, and unpause
 - [ ] `JobFileWatcher.cs` — watches `workspace/jobs/*.json`; debounces changes; reloads changed, created, renamed, and deleted job files without service restart
 - [ ] `MissedJobQueue` or equivalent — when `scheduler.runMissedJobsAsap` is true, queues at most one catch-up execution per missed job and drains missed jobs sequentially so only one scheduled agent turn runs at a time
 
-#### Step 7.2 — Wire Quartz into service host
+#### Step 7.2 — Wire scheduler into service host
 
-- [ ] Register `AddQuartz` + `AddQuartzHostedService` in `Program.cs`; create `workspace/jobs/` if missing; call `LoadJobFilesAsync` at startup; evaluate missed jobs according to `scheduler.runMissedJobsAsap`; start the job file watcher
+- [ ] Register `SchedulerService` as both `ISchedulerService` and a hosted service in `Program.cs`; create `scheduler.directory` if missing; call `LoadJobFilesAsync` at startup; evaluate missed jobs according to `scheduler.runMissedJobsAsap`; start the job file watcher
 
 #### Step 7.3 — Scheduler commands + Create Scheduled Job built-in
 
 - [ ] `Commands/JobsCommand.cs` — lists enabled jobs loaded from `workspace/jobs/` with filename, cron, time zone, `sessionTarget`, and next fire time; clearly marks jobs disabled by file prefix or `enabled: false`
-- [ ] `Commands/CancelJobCommand.cs` — disables the job by editing its JSON `enabled` property to `false` or, if the file cannot be parsed safely, by renaming it with a leading `_`; removes it from Quartz
+- [ ] `Commands/CancelJobCommand.cs` — disables the job by editing its JSON `enabled` property to `false` or, if the file cannot be parsed safely, by renaming it with a leading `_`; removes it from the active scheduler queue
 - [ ] `BuiltIn/CreateScheduledJob/CreateScheduledJobExecutor.cs`:
   1. LLM extracts a job draft matching the job file schema: `name`, `schedule.kind`, `schedule.expr`, `schedule.tz`, `payload.kind`, `payload.message`, `sessionTarget`, `enabled`
   2. Validate cron via `NCrontab.CronSchedule.TryParse`; validate `schedule.tz` as an IANA time zone; ask clarifying questions if ambiguous
@@ -400,7 +400,7 @@ The skill-driven onboarding interview (writing IDENTITY.md, SOUL.md, USER.md) is
 #### Resource limits
 
 - [ ] Profile idle RSS with `dotnet-counters`; target < 100 MB; investigate skill registry or context file store if over budget
-- [ ] Verify idle CPU < 1% (Quartz thread pool idle; Telegram long-poll blocking on I/O)
+- [ ] Verify idle CPU < 1% (scheduler timer idle; Telegram long-poll blocking on I/O)
 
 #### Logging hygiene
 

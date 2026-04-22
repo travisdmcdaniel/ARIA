@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ARIA.Agent\ARIA.Agent.csproj" />
+    <ProjectReference Include="..\ARIA.Scheduler\ARIA.Scheduler.csproj" />
   </ItemGroup>
 </Project>

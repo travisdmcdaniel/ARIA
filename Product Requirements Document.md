@@ -336,7 +336,7 @@ C# with .NET 8 is the strongest fit for this project:
 | Google OAuth & APIs | `Google.Apis.Auth` + `Google.Apis.Gmail.v1` + `Google.Apis.Calendar.v3` |
 | Credential Storage | `Windows.Security.Credentials` (Credential Locker) or `System.Security.Cryptography.ProtectedData` (DPAPI) |
 | SQLite | `Microsoft.Data.Sqlite` + Dapper |
-| Scheduler | Quartz.NET (full-featured cron) or NCrontab with a hosted timer; job definitions loaded from `workspace/jobs/*.json` |
+| Scheduler | NCrontab with a hosted timer; job definitions loaded from `workspace/jobs/*.json` |
 | Installer | WiX Toolset v4 (MSI) or Inno Setup (.exe) |
 | Logging | Serilog with rolling file sink |
 | Configuration | `Microsoft.Extensions.Configuration` with JSON file provider |
@@ -353,7 +353,6 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `workspace.rootPath` | Absolute path to the agent's sandboxed workspace folder |
 | `workspace.contextDirectory` | Path to context files directory (default: `{workspace}/context`) |
 | `workspace.databasePath` | Path to SQLite database file (default: `{workspace}/aria.db`) |
-| `workspace.jobsDirectory` | Path to scheduled job JSON files (default: `{workspace}/jobs`) |
 | `ollama.baseUrl` | Base URL of the Ollama instance (default: `http://localhost:11434`) |
 | `ollama.model` | Model name to use for inference (e.g. `llama3`, `mistral`) |
 | `telegram.botToken` | Telegram bot token — stored in Credential Store, placeholder here |
@@ -370,6 +369,7 @@ ARIA's configuration lives in a JSON file at `%LOCALAPPDATA%\ARIA\config.json`. 
 | `skills.enabled` | Whether to scan, load, and inject skill metadata into prompts (default: `true`) |
 | `skills.directory` | Path to skills folder (default: `{workspace}/skills`); each subdirectory containing a valid `SKILL.md` with required YAML front matter is loaded as a skill |
 | `scheduler.enabled` | Whether the scheduler subsystem is active (default: `true`) |
+| `scheduler.directory` | Path to scheduled job JSON files (default: `{workspace}/jobs`) |
 | `scheduler.runMissedJobsAsap` | Whether jobs missed while ARIA was disabled or offline should run once at the next available opportunity (default: `true`) |
 | `logging.level` | Minimum log level: `Verbose`, `Debug`, `Information`, `Warning`, `Error` |
 

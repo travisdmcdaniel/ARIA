@@ -1,6 +1,7 @@
 using ARIA.Core.Options;
 using ARIA.Skills.BuiltIn;
 using ARIA.Skills.BuiltIn.ContextFileTools;
+using ARIA.Skills.BuiltIn.CreateScheduledJob;
 using ARIA.Skills.BuiltIn.FileTools;
 using ARIA.Skills.Sandbox;
 using FluentAssertions;
@@ -21,7 +22,8 @@ public sealed class ToolRegistryTests
             FileToolDefinitions.ReadFile,
             FileToolDefinitions.WriteFile,
             ContextFileToolDefinitions.ReadContextFile,
-            ContextFileToolDefinitions.WriteContextFile
+            ContextFileToolDefinitions.WriteContextFile,
+            CreateScheduledJobDefinitions.CreateScheduledJob
         ]);
     }
 
@@ -32,6 +34,7 @@ public sealed class ToolRegistryTests
 
         registry.GetExecutor(FileToolDefinitions.ReadFile).Should().NotBeNull();
         registry.GetExecutor(ContextFileToolDefinitions.ReadContextFile).Should().NotBeNull();
+        registry.GetExecutor(CreateScheduledJobDefinitions.CreateScheduledJob).Should().NotBeNull();
         registry.GetExecutor("missing_tool").Should().BeNull();
     }
 
@@ -50,6 +53,7 @@ public sealed class ToolRegistryTests
 
         return new ToolRegistry(
             new FileToolsExecutor(sandbox),
-            new ContextFileToolsExecutor(sandbox, options));
+            new ContextFileToolsExecutor(sandbox, options),
+            new CreateScheduledJobExecutor(options));
     }
 }

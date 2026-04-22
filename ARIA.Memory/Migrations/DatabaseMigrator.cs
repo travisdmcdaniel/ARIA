@@ -82,12 +82,18 @@ public sealed class DatabaseMigrator
 
             CREATE TABLE IF NOT EXISTS scheduled_jobs (
                 job_id              TEXT    PRIMARY KEY,
+                file_name           TEXT,
+                file_path           TEXT,
                 telegram_user_id    INTEGER NOT NULL,
                 name                TEXT    NOT NULL,
                 cron_expression     TEXT    NOT NULL,
+                time_zone_id        TEXT    NOT NULL DEFAULT 'UTC',
+                payload_kind        TEXT    NOT NULL DEFAULT 'agentTurn',
                 prompt              TEXT    NOT NULL,
+                session_target      TEXT    NOT NULL DEFAULT 'isolated',
                 is_active           INTEGER NOT NULL DEFAULT 1,
                 created_at          TEXT    NOT NULL,
+                loaded_at           TEXT,
                 last_fired_at       TEXT,
                 next_fire_at        TEXT
             );

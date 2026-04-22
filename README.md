@@ -41,6 +41,7 @@ Configuration lives at `%LOCALAPPDATA%\ARIA\config.json`. The file is created on
 | `skills.enabled` | `true` | Enable skill metadata loading and prompt injection |
 | `skills.directory` | `%USERPROFILE%\ARIAWorkspace\skills` | Directory scanned for valid `SKILL.md` files |
 | `scheduler.enabled` | `true` | Enable scheduled jobs loaded from `%USERPROFILE%\ARIAWorkspace\jobs` |
+| `scheduler.directory` | `%USERPROFILE%\ARIAWorkspace\jobs` | Directory scanned for scheduled job JSON files |
 | `scheduler.runMissedJobsAsap` | `true` | Run missed scheduled jobs at the next opportunity after ARIA restarts or is re-enabled |
 
 **Sensitive values** (bot token, Google client secret, OAuth tokens) are stored via Windows DPAPI — never in `config.json`.
@@ -133,7 +134,7 @@ ARIA.Core          — interfaces, models, options (no external NuGet dependenci
 ARIA.Memory        — SQLite conversation store, context file store
 ARIA.LlmAdapter    — Ollama adapter (OllamaSharp)
 ARIA.Skills        — file tools, external skill loader, Create Skill built-in
-ARIA.Scheduler     — Quartz.NET cron scheduler, workspace job file loader, execution logging
+ARIA.Scheduler     — NCrontab-backed hosted scheduler, workspace job file loader, execution logging
 ARIA.Google        — OAuth 2.0 flow, Gmail and Calendar API wrappers
 ARIA.Telegram      — Telegram bot, command registry, message routing
 ARIA.Agent         — conversation loop, tool dispatch, onboarding wizard

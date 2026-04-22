@@ -1,6 +1,7 @@
 using ARIA.Core.Interfaces;
 using ARIA.Core.Models;
 using ARIA.Skills.BuiltIn.ContextFileTools;
+using ARIA.Skills.BuiltIn.CreateScheduledJob;
 using ARIA.Skills.BuiltIn.FileTools;
 
 namespace ARIA.Skills.BuiltIn;
@@ -12,12 +13,14 @@ public sealed class ToolRegistry : IToolRegistry
 
     public ToolRegistry(
         FileToolsExecutor fileTools,
-        ContextFileToolsExecutor contextFileTools)
+        ContextFileToolsExecutor contextFileTools,
+        CreateScheduledJobExecutor createScheduledJob)
     {
         _definitions =
         [
             ..FileToolDefinitions.All,
-            ..ContextFileToolDefinitions.All
+            ..ContextFileToolDefinitions.All,
+            ..CreateScheduledJobDefinitions.All
         ];
 
         var executors = new Dictionary<string, IToolExecutor>(StringComparer.OrdinalIgnoreCase);
@@ -26,6 +29,9 @@ public sealed class ToolRegistry : IToolRegistry
 
         foreach (var toolName in contextFileTools.ToolNames)
             executors[toolName] = contextFileTools;
+
+        foreach (var toolName in createScheduledJob.ToolNames)
+            executors[toolName] = createScheduledJob;
 
         _executors = executors;
     }

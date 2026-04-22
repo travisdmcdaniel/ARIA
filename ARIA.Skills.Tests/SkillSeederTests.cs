@@ -31,10 +31,13 @@ public sealed class SkillSeederTests
 
         var createSkill = Path.Combine(root, "skills", "create_new_skill", "SKILL.md");
         var onboarding = Path.Combine(root, "skills", "onboarding", "SKILL.md");
+        var createScheduledJob = Path.Combine(root, "skills", "create_scheduled_job", "SKILL.md");
         File.Exists(createSkill).Should().BeTrue();
         File.Exists(onboarding).Should().BeTrue();
+        File.Exists(createScheduledJob).Should().BeTrue();
         File.ReadAllText(createSkill).Should().Contain("name: create_new_skill");
         File.ReadAllText(onboarding).Should().Contain("name: onboarding");
+        File.ReadAllText(createScheduledJob).Should().Contain("name: create_scheduled_job");
     }
 
     [Fact]

@@ -7,10 +7,13 @@ using ARIA.LlmAdapter.Ollama;
 using ARIA.Memory.Context;
 using ARIA.Memory.Migrations;
 using ARIA.Memory.Sqlite;
+using ARIA.Scheduler;
+using ARIA.Scheduler.Store;
 using ARIA.Service;
 using ARIA.Service.Security;
 using ARIA.Skills.BuiltIn;
 using ARIA.Skills.BuiltIn.ContextFileTools;
+using ARIA.Skills.BuiltIn.CreateScheduledJob;
 using ARIA.Skills.BuiltIn.FileTools;
 using ARIA.Skills.Loader;
 using ARIA.Skills.Sandbox;
@@ -94,6 +97,7 @@ try
     builder.Services.AddSingleton<WorkspaceSandbox>();
     builder.Services.AddSingleton<FileToolsExecutor>();
     builder.Services.AddSingleton<ContextFileToolsExecutor>();
+    builder.Services.AddSingleton<CreateScheduledJobExecutor>();
     builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
     builder.Services.AddSingleton<SkillLoader>();
     builder.Services.AddSingleton<SkillSeeder>();
@@ -105,6 +109,13 @@ try
     builder.Services.AddSingleton<IAgentTurnHandler>(sp => sp.GetRequiredService<ConversationLoop>());
     builder.Services.AddHostedService<AgentWorker>();
     builder.Services.AddHostedService<HeartbeatWorker>();
+
+    // ── Scheduler ────────────────────────────────────────────────────────────
+    builder.Services.AddSingleton<FileSystemJobStore>();
+    builder.Services.AddSingleton<SqliteJobStore>();
+    builder.Services.AddSingleton<SchedulerService>();
+    builder.Services.AddSingleton<ISchedulerService>(sp => sp.GetRequiredService<SchedulerService>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<SchedulerService>());
 
     // ── Telegram commands ─────────────────────────────────────────────────────
     // General

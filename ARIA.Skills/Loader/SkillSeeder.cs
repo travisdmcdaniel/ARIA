@@ -27,6 +27,12 @@ public sealed class SkillSeeder(IOptions<AriaOptions> options, ILogger<SkillSeed
             "onboarding",
             OnboardingSkillContent,
             ct);
+
+        await SeedSkillAsync(
+            skillsDirectory,
+            "create_scheduled_job",
+            CreateScheduledJobSkillContent,
+            ct);
     }
 
     private async Task SeedSkillAsync(
@@ -122,5 +128,41 @@ public sealed class SkillSeeder(IOptions<AriaOptions> options, ILogger<SkillSeed
         - `IDENTITY.md` should describe who the agent is, including its chosen name and role.
         - `SOUL.md` should describe communication style and behavioral preferences.
         - `USER.md` should contain factual information about the user and recurring needs.
+        """;
+
+    private const string CreateScheduledJobSkillContent = """
+        ---
+        name: create_scheduled_job
+        description: Create or update scheduled job JSON files in the workspace jobs directory.
+        ---
+
+        # Create Scheduled Job
+
+        ## Purpose
+        Convert a user's natural-language recurring task request into a scheduled job JSON file.
+
+        ## Instructions
+        1. Clarify ambiguous timing before writing a job file. Ask for the timezone if it is not already clear from USER.md or the user's request.
+        2. Convert the schedule to a cron expression. For M7, `schedule.kind` must always be `cron`.
+        3. Choose a concise job name. The `create_scheduled_job` tool will derive the filename from it in kebab case under `jobs/`.
+        4. Call the `create_scheduled_job` tool with exactly this shape:
+
+        ```json
+        {
+          "name": "Daily Briefing",
+          "schedule": { "kind": "cron", "expr": "30 7 * * *", "tz": "America/New_York" },
+          "payload": { "kind": "agentTurn", "message": "Run the daily briefing skill, and send the results to the user." },
+          "sessionTarget": "isolated",
+          "enabled": true
+        }
+        ```
+
+        5. `payload.message` is the message that will be sent to the model when the job fires. Make it explicit and self-contained.
+        6. Use `sessionTarget: "isolated"` unless the user specifically asks for the job to run in the active conversation.
+        7. Do not call `write_file` directly unless `create_scheduled_job` is unavailable. The tool writes the JSON file, and the scheduler will pick it up through its file watcher or periodic reload.
+        8. Tell the user the filename that was written and ask them to review it if the task is important.
+
+        ## Disable Rules
+        A job is disabled if `enabled` is `false`, if the filename starts with `_`, or if the filename starts with `disabled`.
         """;
 }
